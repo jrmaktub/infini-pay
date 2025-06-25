@@ -41,7 +41,7 @@ export class RaydiumSwapService {
         quoteVault: new PublicKey('42VNLs1PuGg4XpDWz7YRFzbBWfUAjEv3vKr8Tx5LPDS'),
         withdrawQueue: new PublicKey('G7xeGGLevkRwB5fgfxq8MkqQoJpm3qNgwgANKDsGJRz'),
         lpVault: new PublicKey('Awpt6N7ZYPBa4vG4BQNFhFxDj5w6r6yX8LHhBnF4bnE'),
-        marketVersion: 3,
+        marketVersion: 3 as 3,
         marketProgramId: new PublicKey('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin'),
         marketId: new PublicKey('HWHvQhFmJB3NUcu1aihKmrKegfVxBEHzwVX6yZCKEsi1'),
         marketBids: new PublicKey('14ivtgssEBoBjuZJtSAPKYgpUK7DmnSwuPMqJoVTSgKJ'),
@@ -140,8 +140,8 @@ export class RaydiumSwapService {
         poolKeys,
         userKeys: {
           tokenAccounts: [
-            { pubkey: userIccTokenAccount, accountInfo: null },
-            { pubkey: userSolTokenAccount, accountInfo: null }
+            { pubkey: userIccTokenAccount, accountInfo: null, programId: TOKEN_PROGRAM_ID },
+            { pubkey: userSolTokenAccount, accountInfo: null, programId: TOKEN_PROGRAM_ID }
           ],
           owner: wallet.publicKey,
         },
