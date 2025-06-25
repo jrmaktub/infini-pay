@@ -15,7 +15,7 @@ export function runPolyfillTest() {
   
   if (typeof process !== 'undefined') {
     console.log('process.env is', typeof process.env !== 'undefined' ? 'available' : 'NOT available');
-    console.log('process.browser is', process.browser);
+    console.log('process.browser is', (process as any).browser);
   }
   
   console.log('=== End Polyfill Test ===');
