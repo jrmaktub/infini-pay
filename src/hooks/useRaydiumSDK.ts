@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
 
+export type RaydiumSDKStatus = 'idle' | 'initializing' | 'ready' | 'error' | 'retrying';
+
 export interface RaydiumSDKState {
-  status: 'idle' | 'initializing' | 'ready' | 'error' | 'retrying';
+  status: RaydiumSDKStatus;
   error: string | null;
   isReady: boolean;
   retryCount: number;

@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
-import { useRaydiumSDK } from '@/hooks/useRaydiumSDK';
+import { useRaydiumSDK, type RaydiumSDKStatus } from '@/hooks/useRaydiumSDK';
 import SwapLoadingSkeleton from './SwapLoadingSkeleton';
 import SwapErrorFallback from './SwapErrorFallback';
 
