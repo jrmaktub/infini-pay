@@ -1,7 +1,7 @@
 
 // Import polyfills FIRST before any other imports
 import 'buffer';
-import 'process/browser';
+import 'process';
 
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
