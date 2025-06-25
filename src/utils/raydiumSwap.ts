@@ -32,7 +32,7 @@ export class RaydiumSwapService {
         baseDecimals: 9,
         quoteDecimals: 9,
         lpDecimals: 9,
-        version: 4,
+        version: 4 as 4,
         programId: new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'),
         authority: new PublicKey('5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1'),
         openOrders: new PublicKey('HRk9CMrpq7Jn9sh7mzxE8CChHG2dneX7p9vB2dmx9Zp'),
@@ -139,8 +139,10 @@ export class RaydiumSwapService {
         connection: this.connection,
         poolKeys,
         userKeys: {
-          tokenAccountIn: userIccTokenAccount,
-          tokenAccountOut: userSolTokenAccount,
+          tokenAccounts: [
+            { pubkey: userIccTokenAccount, accountInfo: null },
+            { pubkey: userSolTokenAccount, accountInfo: null }
+          ],
           owner: wallet.publicKey,
         },
         amountIn: tokenAmountIn.raw,
@@ -149,7 +151,7 @@ export class RaydiumSwapService {
         makeTxVersion: 0,
       });
 
-      instructions.push(swapInstruction.innerTransaction.instructions[0]);
+      instructions.push(...swapInstruction.innerTransactions[0].instructions);
 
       // Create and send transaction
       const transaction = new Transaction().add(...instructions);
