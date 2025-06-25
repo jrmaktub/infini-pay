@@ -3,7 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import BalanceCard from './BalanceCard';
 import SwapInterface from './SwapInterface';
 import VirtualCard from './VirtualCard';
-import TransactionHistory from './TransactionHistory';
+import SwapHistoryTable from './SwapHistoryTable';
 import BuilderPassLink from './BuilderPassLink';
 
 const Dashboard = () => {
@@ -32,7 +32,7 @@ const Dashboard = () => {
       
       <div className="space-y-6">
         <VirtualCard />
-        <TransactionHistory />
+        <SwapHistoryTable />
       </div>
     </div>
   );

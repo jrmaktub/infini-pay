@@ -60,12 +60,12 @@ const SwapInterface = () => {
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Record swap in Supabase
+    // Record swap in Supabase with descriptive note
     const success = await insertSwap(
       fromToken,
       toToken,
       parseFloat(fromAmount),
-      `${fromToken} → ${toToken} swap`
+      `Simulated swap ${fromToken} → ${toToken}`
     );
     
     if (success) {
