@@ -4,9 +4,12 @@ import { ArrowRight, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { raydiumSwapService } from '@/utils/raydiumSwap';
+// Temporarily disable Raydium import to fix white screen
+// import { raydiumSwapService } from '@/utils/raydiumSwap';
 
 const SwapInterface = () => {
+  console.log('SwapInterface component rendering...');
+  
   const [fromToken, setFromToken] = useState('ICC');
   const [toToken, setToToken] = useState('SOL');
   const [fromAmount, setFromAmount] = useState('');
@@ -47,6 +50,8 @@ const SwapInterface = () => {
   };
 
   const handleSwap = async () => {
+    console.log('handleSwap called');
+    
     if (!wallet.connected || !wallet.publicKey) {
       toast({
         title: "Wallet Not Connected",
@@ -90,42 +95,36 @@ const SwapInterface = () => {
     setIsSwapping(true);
     
     try {
+      console.log('Starting swap process...');
+      
       toast({
-        title: "Initiating Swap",
-        description: "Please confirm the transaction in your wallet...",
+        title: "Swap Simulation",
+        description: "Simulating swap (Raydium integration temporarily disabled)...",
       });
 
-      // Perform real swap using Raydium
-      const swapResult = await raydiumSwapService.swapIccToSol(wallet, swapAmount, 1);
+      // Simulate swap delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Record swap in database as simulation
+      const success = await insertSwap(
+        fromToken,
+        toToken,
+        swapAmount,
+        `Simulated swap ${fromToken} → ${toToken} (Raydium integration disabled)`
+      );
       
-      if (swapResult.success) {
-        // Record swap in database with real transaction signature
-        const success = await insertSwap(
-          fromToken,
-          toToken,
-          swapAmount,
-          `Swap ${fromToken} → ${toToken} | Tx: ${swapResult.signature}`
-        );
+      if (success) {
+        toast({
+          title: "Swap Simulation Complete!",
+          description: `Simulated swap of ${fromAmount} I₵C for ${toAmount} SOL`,
+        });
         
-        if (success) {
-          toast({
-            title: "Swap Successful!",
-            description: `Swapped ${fromAmount} I₵C for ${toAmount} SOL`,
-          });
-          
-          setFromAmount('');
-          setToAmount('');
-        } else {
-          toast({
-            title: "Database Error",
-            description: "Swap completed but failed to record in database",
-            variant: "destructive"
-          });
-        }
+        setFromAmount('');
+        setToAmount('');
       } else {
         toast({
-          title: "Swap Failed",
-          description: swapResult.error || "Transaction failed",
+          title: "Database Error",
+          description: "Failed to record swap simulation",
           variant: "destructive"
         });
       }
@@ -143,11 +142,13 @@ const SwapInterface = () => {
 
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
+  console.log('SwapInterface rendering with balances:', balances);
+
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Real Token Swap
+        Token Swap (Simulation Mode)
       </h2>
 
       <div className="space-y-4">
@@ -209,13 +210,13 @@ const SwapInterface = () => {
         </div>
 
         <div className="text-center text-sm text-gray-300">
-          <p>Live Rate: 1 I₵C ≈ {ESTIMATED_RATE} SOL</p>
-          <p className="text-xs text-gray-400 mt-1">Rate updated from Raydium pool</p>
+          <p>Estimated Rate: 1 I₵C ≈ {ESTIMATED_RATE} SOL</p>
+          <p className="text-xs text-gray-400 mt-1">Simulation mode - Raydium integration disabled</p>
         </div>
 
         <div className="bg-yellow-500/20 rounded-lg p-3 border border-yellow-500/30">
           <p className="text-yellow-300 text-sm">
-            ⚠️ Real swaps will deduct network fees and may have slippage
+            ⚠️ Simulation mode active - Raydium integration temporarily disabled to resolve loading issues
           </p>
         </div>
 
@@ -224,7 +225,7 @@ const SwapInterface = () => {
           disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSwapping ? 'Processing Swap...' : !wallet.connected ? 'Connect Wallet' : 'Execute Real Swap'}
+          {isSwapping ? 'Processing Simulation...' : !wallet.connected ? 'Connect Wallet' : 'Simulate Swap'}
         </button>
       </div>
     </div>

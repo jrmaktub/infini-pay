@@ -19,23 +19,26 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       buffer: 'buffer',
-      process: 'process/browser'
+      process: 'process/browser',
+      stream: 'stream-browserify',
+      util: 'util'
     },
   },
   define: {
     global: 'globalThis',
-    'process.env': {},
-    'process.browser': true
+    'process.env': '{}',
+    'process.browser': 'true',
+    'process.version': '"v16.0.0"'
   },
   optimizeDeps: {
     include: [
-      '@solana/wallet-adapter-phantom',
-      '@solana/wallet-adapter-solflare',
-      '@solana/wallet-adapter-react',
-      '@solana/web3.js',
-      '@raydium-io/raydium-sdk',
       'buffer',
-      'process'
+      'process',
+      'stream-browserify',
+      'util'
     ],
+    exclude: [
+      '@raydium-io/raydium-sdk'
+    ]
   },
 }));
