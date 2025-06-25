@@ -55,6 +55,20 @@ const BalanceCard = () => {
             </div>
           </div>
         </div>
+
+        <div className="bg-white/10 rounded-xl p-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-gray-300 text-sm">SOL Balance</p>
+              <p className="text-2xl font-bold text-white">
+                {loading ? '...' : (balances.sol_balance || 0).toFixed(4)} SOL
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
+              <span className="text-white font-bold text-xs">SOL</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

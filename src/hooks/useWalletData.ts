@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { raydiumSwapService } from '@/utils/raydiumSwap';
+import { PublicKey } from '@solana/web3.js';
 
 interface SwapRecord {
   id: string;
@@ -17,12 +19,19 @@ interface SwapRecord {
 interface WalletBalances {
   icc_balance: number;
   usdc_balance: number;
+  sol_balance?: number; // Add SOL balance
 }
+
+const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
 
 export const useWalletData = () => {
   const { publicKey, connected } = useWallet();
   const [swaps, setSwaps] = useState<SwapRecord[]>([]);
-  const [balances, setBalances] = useState<WalletBalances>({ icc_balance: 0, usdc_balance: 0 });
+  const [balances, setBalances] = useState<WalletBalances>({ 
+    icc_balance: 0, 
+    usdc_balance: 0,
+    sol_balance: 0 
+  });
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -42,28 +51,45 @@ export const useWalletData = () => {
     }
   };
 
-  // Fetch wallet balances
+  // Fetch wallet balances (including real on-chain balances)
   const fetchBalances = async () => {
     if (!publicKey) return;
 
     try {
       const walletAddress = publicKey.toString();
       
+      // Fetch database balances
       const { data, error } = await supabase
         .from('wallets')
         .select('icc_balance, usdc_balance')
         .eq('wallet', walletAddress)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('Error fetching balances:', error);
         return;
       }
 
+      // Fetch real on-chain ICC balance
+      const realIccBalance = await raydiumSwapService.getTokenBalance(ICC_MINT, publicKey);
+      
+      // Get SOL balance from wallet
+      const connection = raydiumSwapService['connection'];
+      const solBalance = await connection.getBalance(publicKey);
+      const solBalanceInSol = solBalance / 1e9; // Convert lamports to SOL
+
       if (data) {
         setBalances({
           icc_balance: data.icc_balance || 0,
-          usdc_balance: data.usdc_balance || 0
+          usdc_balance: data.usdc_balance || 0,
+          sol_balance: solBalanceInSol
+        });
+      } else {
+        // If no database record, use on-chain balance
+        setBalances({
+          icc_balance: realIccBalance,
+          usdc_balance: 0,
+          sol_balance: solBalanceInSol
         });
       }
     } catch (error) {
@@ -80,7 +106,10 @@ export const useWalletData = () => {
       
       const { error } = await supabase
         .from('wallets')
-        .update(newBalances)
+        .update({
+          icc_balance: newBalances.icc_balance,
+          usdc_balance: newBalances.usdc_balance
+        })
         .eq('wallet', walletAddress);
 
       if (error) {
@@ -109,38 +138,30 @@ export const useWalletData = () => {
       setLoading(true);
       const walletAddress = publicKey.toString();
       
-      // Check if user has sufficient balance
-      const fromBalance = tokenFrom === 'ICC' ? balances.icc_balance : balances.usdc_balance;
-      if (fromBalance < amount) {
-        toast({
-          title: "Insufficient Balance",
-          description: `You don't have enough ${tokenFrom} to complete this swap`,
-          variant: "destructive"
-        });
-        return false;
+      // For real swaps, we don't need to manage database balances for SOL
+      // as it's managed on-chain. We'll only update ICC/USDC in our database.
+      
+      let newBalances = { ...balances };
+      
+      if (tokenFrom === 'ICC' && tokenTo === 'SOL') {
+        // Real swap already executed, just update our database record
+        newBalances.icc_balance -= amount;
+        // SOL balance will be updated by fetching from chain
+      } else if (tokenFrom === 'ICC' && tokenTo === 'USDC') {
+        // Simulated swap logic for ICC <-> USDC
+        const EXCHANGE_RATE = 0.95;
+        newBalances.icc_balance -= amount;
+        newBalances.usdc_balance += amount * EXCHANGE_RATE;
+      } else if (tokenFrom === 'USDC' && tokenTo === 'ICC') {
+        // Simulated swap logic for USDC <-> ICC
+        const EXCHANGE_RATE = 0.95;
+        newBalances.usdc_balance -= amount;
+        newBalances.icc_balance += amount / EXCHANGE_RATE;
       }
 
-      // Calculate new balances
-      const EXCHANGE_RATE = 0.95;
-      let newIccBalance = balances.icc_balance;
-      let newUsdcBalance = balances.usdc_balance;
-
-      if (tokenFrom === 'ICC') {
-        newIccBalance -= amount;
-        newUsdcBalance += amount * EXCHANGE_RATE;
-      } else {
-        newUsdcBalance -= amount;
-        newIccBalance += amount / EXCHANGE_RATE;
-      }
-
-      const newBalances = {
-        icc_balance: newIccBalance,
-        usdc_balance: newUsdcBalance
-      };
-
-      // Update balances first
+      // Update balances in database
       const balanceUpdateSuccess = await updateBalances(newBalances);
-      if (!balanceUpdateSuccess) {
+      if (!balanceUpdateSuccess && tokenTo !== 'SOL') {
         toast({
           title: "Error",
           description: "Failed to update balances",
@@ -162,8 +183,6 @@ export const useWalletData = () => {
 
       if (error) {
         console.error('Error inserting swap:', error);
-        // Rollback balance update
-        await updateBalances(balances);
         toast({
           title: "Error",
           description: "Failed to record swap transaction",
@@ -172,7 +191,8 @@ export const useWalletData = () => {
         return false;
       }
 
-      // Refresh swaps after successful insert
+      // Refresh balances and swaps after successful insert
+      await fetchBalances();
       await fetchSwaps();
       return true;
     } catch (error) {
@@ -219,7 +239,7 @@ export const useWalletData = () => {
       fetchSwaps();
     } else {
       setSwaps([]);
-      setBalances({ icc_balance: 0, usdc_balance: 0 });
+      setBalances({ icc_balance: 0, usdc_balance: 0, sol_balance: 0 });
     }
   }, [connected, publicKey]);
 
