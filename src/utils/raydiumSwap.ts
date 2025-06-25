@@ -1,26 +1,43 @@
-
-// Defensive imports with try-catch blocks
+// Dynamic imports - no top-level await
 let Connection: any;
 let PublicKey: any;
 let TOKEN_PROGRAM_ID: any;
 let getAssociatedTokenAddress: any;
 
-try {
-  const web3 = await import('@solana/web3.js');
-  Connection = web3.Connection;
-  PublicKey = web3.PublicKey;
-  console.log('Successfully imported @solana/web3.js');
-} catch (error) {
-  console.error('Failed to import @solana/web3.js:', error);
+// Flags to track import status
+let web3Imported = false;
+let splTokenImported = false;
+
+async function importWeb3() {
+  if (web3Imported) return true;
+  
+  try {
+    const web3 = await import('@solana/web3.js');
+    Connection = web3.Connection;
+    PublicKey = web3.PublicKey;
+    web3Imported = true;
+    console.log('Successfully imported @solana/web3.js');
+    return true;
+  } catch (error) {
+    console.error('Failed to import @solana/web3.js:', error);
+    return false;
+  }
 }
 
-try {
-  const splToken = await import('@solana/spl-token');
-  TOKEN_PROGRAM_ID = splToken.TOKEN_PROGRAM_ID;
-  getAssociatedTokenAddress = splToken.getAssociatedTokenAddress;
-  console.log('Successfully imported @solana/spl-token');
-} catch (error) {
-  console.error('Failed to import @solana/spl-token:', error);
+async function importSplToken() {
+  if (splTokenImported) return true;
+  
+  try {
+    const splToken = await import('@solana/spl-token');
+    TOKEN_PROGRAM_ID = splToken.TOKEN_PROGRAM_ID;
+    getAssociatedTokenAddress = splToken.getAssociatedTokenAddress;
+    splTokenImported = true;
+    console.log('Successfully imported @solana/spl-token');
+    return true;
+  } catch (error) {
+    console.error('Failed to import @solana/spl-token:', error);
+    return false;
+  }
 }
 
 const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
@@ -66,8 +83,11 @@ export class RaydiumSwapService {
     }
 
     try {
-      // Check if required imports are available
-      if (!Connection || !PublicKey) {
+      // Import dependencies dynamically
+      const web3Success = await importWeb3();
+      const splTokenSuccess = await importSplToken();
+      
+      if (!web3Success || !Connection || !PublicKey) {
         console.error('RaydiumSwapService - Required Solana imports not available');
         return false;
       }
@@ -271,6 +291,9 @@ export class RaydiumSwapService {
     }
     
     try {
+      // Ensure spl-token is imported
+      await importSplToken();
+      
       if (!PublicKey || !getAssociatedTokenAddress || !this.connection) {
         console.error('RaydiumSwapService - Required dependencies not available');
         return 0;
