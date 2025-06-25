@@ -18,6 +18,10 @@ const SwapHistoryTable = () => {
     });
   };
 
+  const formatTokenName = (token: string) => {
+    return token === 'ICC' ? 'I₵C' : token;
+  };
+
   if (!connected) {
     return (
       <div className="bg-gradient-to-br from-gray-800/20 to-gray-900/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
@@ -67,8 +71,8 @@ const SwapHistoryTable = () => {
             <TableBody>
               {swaps.map((swap) => (
                 <TableRow key={swap.id} className="border-white/10 hover:bg-white/5">
-                  <TableCell className="text-white font-medium">{swap.token_from}</TableCell>
-                  <TableCell className="text-white font-medium">{swap.token_to}</TableCell>
+                  <TableCell className="text-white font-medium">{formatTokenName(swap.token_from)}</TableCell>
+                  <TableCell className="text-white font-medium">{formatTokenName(swap.token_to)}</TableCell>
                   <TableCell className="text-white">{swap.amount}</TableCell>
                   <TableCell className="text-gray-300">{formatTimestamp(swap.timestamp)}</TableCell>
                   <TableCell className="text-gray-400">{swap.note || '-'}</TableCell>

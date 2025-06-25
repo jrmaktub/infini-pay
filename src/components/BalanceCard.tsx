@@ -5,7 +5,7 @@ import { useWalletData } from '@/hooks/useWalletData';
 
 const BalanceCard = () => {
   const { connected } = useWallet();
-  const { balances, loading, fetchBalances } = useWalletData();
+  const { balances, loading } = useWalletData();
 
   if (!connected) {
     return (
@@ -31,13 +31,13 @@ const BalanceCard = () => {
         <div className="bg-white/10 rounded-xl p-4">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-gray-300 text-sm">ICC Balance</p>
+              <p className="text-gray-300 text-sm">I₵C Balance</p>
               <p className="text-2xl font-bold text-white">
-                {loading ? '...' : balances.icc_balance.toLocaleString()} ICC
+                {loading ? '...' : balances.icc_balance.toLocaleString()} I₵C
               </p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-              <span className="text-white font-bold">ICC</span>
+              <span className="text-white font-bold text-xs">I₵C</span>
             </div>
           </div>
         </div>
@@ -56,14 +56,6 @@ const BalanceCard = () => {
           </div>
         </div>
       </div>
-
-      <button
-        onClick={fetchBalances}
-        className="w-full mt-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold py-2 px-4 rounded-xl hover:from-purple-700 hover:to-blue-700 transition-all duration-300"
-        disabled={loading}
-      >
-        {loading ? 'Refreshing...' : 'Refresh Balances'}
-      </button>
     </div>
   );
 };

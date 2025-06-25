@@ -77,7 +77,7 @@ const SwapInterface = () => {
       fromToken,
       toToken,
       swapAmount,
-      `Simulated swap ${fromToken} → ${toToken}`
+      `Swap ${fromToken} → ${toToken}`
     );
     
     if (success) {
@@ -111,7 +111,7 @@ const SwapInterface = () => {
               onChange={(e) => setFromToken(e.target.value)}
               className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
             >
-              <option value="ICC">ICC</option>
+              <option value="ICC">I₵C</option>
               <option value="USDC">USDC</option>
             </select>
             <input
@@ -124,7 +124,7 @@ const SwapInterface = () => {
             />
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Available: {maxBalance.toLocaleString()} {fromToken}
+            Available: {maxBalance.toLocaleString()} {fromToken === 'ICC' ? 'I₵C' : fromToken}
           </p>
         </div>
 
@@ -146,7 +146,7 @@ const SwapInterface = () => {
               className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
             >
               <option value="USDC">USDC</option>
-              <option value="ICC">ICC</option>
+              <option value="ICC">I₵C</option>
             </select>
             <input
               type="number"
@@ -159,7 +159,7 @@ const SwapInterface = () => {
         </div>
 
         <div className="text-center text-sm text-gray-300">
-          Rate: 1 ICC = {EXCHANGE_RATE} USDC
+          Rate: 1 I₵C = {EXCHANGE_RATE} USDC
         </div>
 
         <button
