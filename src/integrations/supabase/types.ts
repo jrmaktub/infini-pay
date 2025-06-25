@@ -180,16 +180,22 @@ export type Database = {
         Row: {
           builder_pass: string | null
           created_at: string
+          icc_balance: number | null
+          usdc_balance: number | null
           wallet: string
         }
         Insert: {
           builder_pass?: string | null
           created_at?: string
+          icc_balance?: number | null
+          usdc_balance?: number | null
           wallet: string
         }
         Update: {
           builder_pass?: string | null
           created_at?: string
+          icc_balance?: number | null
+          usdc_balance?: number | null
           wallet?: string
         }
         Relationships: []

@@ -11,7 +11,7 @@ const SwapInterface = () => {
   const [toAmount, setToAmount] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
   const { toast } = useToast();
-  const { insertSwap } = useWalletData();
+  const { insertSwap, balances } = useWalletData();
 
   const EXCHANGE_RATE = 0.95; // 1 ICC = 0.95 USDC
 
@@ -55,16 +55,28 @@ const SwapInterface = () => {
       return;
     }
 
+    const swapAmount = parseFloat(fromAmount);
+    const currentBalance = fromToken === 'ICC' ? balances.icc_balance : balances.usdc_balance;
+
+    if (swapAmount > currentBalance) {
+      toast({
+        title: "Insufficient Balance",
+        description: `You don't have enough ${fromToken}. Current balance: ${currentBalance.toLocaleString()}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsSwapping(true);
     
-    // Simulate API call
+    // Simulate API call delay
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Record swap in Supabase with descriptive note
+    // Record swap with automatic balance updates
     const success = await insertSwap(
       fromToken,
       toToken,
-      parseFloat(fromAmount),
+      swapAmount,
       `Simulated swap ${fromToken} → ${toToken}`
     );
     
@@ -80,6 +92,8 @@ const SwapInterface = () => {
     
     setIsSwapping(false);
   };
+
+  const maxBalance = fromToken === 'ICC' ? balances.icc_balance : balances.usdc_balance;
 
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
@@ -105,9 +119,13 @@ const SwapInterface = () => {
               value={fromAmount}
               onChange={(e) => handleAmountChange(e.target.value, true)}
               placeholder="0.00"
+              max={maxBalance}
               className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
             />
           </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Available: {maxBalance.toLocaleString()} {fromToken}
+          </p>
         </div>
 
         <div className="flex justify-center">
@@ -146,7 +164,7 @@ const SwapInterface = () => {
 
         <button
           onClick={handleSwap}
-          disabled={isSwapping || !fromAmount}
+          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSwapping ? 'Swapping...' : 'Swap Tokens'}
