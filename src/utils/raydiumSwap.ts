@@ -1,7 +1,6 @@
 
-import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
-import { Liquidity, LiquidityPoolKeys, jsonInfo2PoolKeys, Percent, Token, TokenAmount } from '@raydium-io/raydium-sdk';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
 
 const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
@@ -13,19 +12,102 @@ interface SwapResult {
   error?: string;
 }
 
+interface SwapPair {
+  baseMint: string;
+  quoteMint: string;
+  baseSymbol: string;
+  quoteSymbol: string;
+  poolId: string;
+}
+
+interface PoolInfo {
+  poolId: string;
+  baseReserve: number;
+  quoteReserve: number;
+  price: number;
+  volume24h?: number;
+}
+
 export class RaydiumSwapService {
   private connection: Connection;
 
   constructor() {
     this.connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+    console.log('RaydiumSwapService - Initialized with RPC endpoint:', SOLANA_RPC_ENDPOINT);
   }
 
-  async getIccSolPoolInfo(): Promise<LiquidityPoolKeys | null> {
+  async getAvailableSwapPairs(): Promise<SwapPair[]> {
+    console.log('RaydiumSwapService - Fetching available swap pairs...');
+    
     try {
-      // For demonstration, using a mock pool structure
-      // In production, you would fetch this from Raydium's API or on-chain data
+      // For now, return mock data for common pairs
+      // In production, this would fetch from Raydium's API
+      const mockPairs: SwapPair[] = [
+        {
+          baseMint: ICC_MINT.toString(),
+          quoteMint: SOL_MINT.toString(),
+          baseSymbol: 'ICC',
+          quoteSymbol: 'SOL',
+          poolId: '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2'
+        },
+        {
+          baseMint: SOL_MINT.toString(),
+          quoteMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+          baseSymbol: 'SOL',
+          quoteSymbol: 'USDC',
+          poolId: '2QdhepnKRTLjjSqPL1PtKNwqrUkoLee5Gqs8bvZhRdMv'
+        },
+        {
+          baseMint: ICC_MINT.toString(),
+          quoteMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+          baseSymbol: 'ICC',
+          quoteSymbol: 'USDC',
+          poolId: '3d4rzwpy9iGdCZvgxcu7B1YocYffVLsQXPXkBZKt2zLc'
+        }
+      ];
+
+      console.log('RaydiumSwapService - Successfully fetched swap pairs:', mockPairs.length);
+      return mockPairs;
+    } catch (error) {
+      console.error('RaydiumSwapService - Error fetching swap pairs:', error);
+      throw new Error('Failed to fetch swap pairs');
+    }
+  }
+
+  async getPoolInfo(baseToken: string, quoteToken: string): Promise<PoolInfo | null> {
+    console.log(`RaydiumSwapService - Fetching pool info for ${baseToken}/${quoteToken}...`);
+    
+    try {
+      // For demonstration, return mock pool data
+      // In production, this would fetch real pool data from Raydium
+      if (baseToken === 'ICC' && quoteToken === 'SOL') {
+        const mockPoolInfo: PoolInfo = {
+          poolId: '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+          baseReserve: 1000000, // 1M ICC
+          quoteReserve: 45, // 45 SOL
+          price: 0.000045, // 1 ICC = 0.000045 SOL
+          volume24h: 12500
+        };
+
+        console.log('RaydiumSwapService - Successfully fetched pool info:', mockPoolInfo);
+        return mockPoolInfo;
+      }
+
+      console.log('RaydiumSwapService - No pool info available for this pair');
+      return null;
+    } catch (error) {
+      console.error('RaydiumSwapService - Error fetching pool info:', error);
+      throw new Error('Failed to fetch pool information');
+    }
+  }
+
+  async getIccSolPoolInfo() {
+    console.log('RaydiumSwapService - Getting ICC/SOL pool keys...');
+    
+    try {
+      // Mock pool structure for demonstration
       const poolInfo = {
-        id: new PublicKey('58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2'), // Example pool ID
+        id: new PublicKey('58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2'),
         baseMint: ICC_MINT,
         quoteMint: SOL_MINT,
         lpMint: new PublicKey('2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk'),
@@ -39,7 +121,7 @@ export class RaydiumSwapService {
         targetOrders: new PublicKey('CZza3Ej4Mc58MnxWA385itCC9jCo3L1D7zc3LKy1bZMR'),
         baseVault: new PublicKey('38YjZczl6dKqw2KnkfgBYuPpMr4AQanDoTzaFHaUWgJd'),
         quoteVault: new PublicKey('42VNLs1PuGg4XpDWz7YRFzbBWfUAjEv3vKr8Tx5LPDS'),
-        withdrawQueue: new PublicKey('G7xeGGLevkRwB5fgfxq8MkqQoJpm3qNgwgANKDsGJRz'),
+        withdrawQueue: new PublicKey('G7xeGGLevkRwB5fgfcq8MkqQoJpm3qNgwgANKDsGJRz'),
         lpVault: new PublicKey('Awpt6N7ZYPBa4vG4BQNFhFxDj5w6r6yX8LHhBnF4bnE'),
         marketVersion: 3 as 3,
         marketProgramId: new PublicKey('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin'),
@@ -53,9 +135,10 @@ export class RaydiumSwapService {
         lookupTableAccount: PublicKey.default,
       };
 
+      console.log('RaydiumSwapService - Pool keys retrieved successfully');
       return poolInfo;
     } catch (error) {
-      console.error('Error fetching pool info:', error);
+      console.error('RaydiumSwapService - Error fetching pool info:', error);
       return null;
     }
   }
@@ -63,113 +146,28 @@ export class RaydiumSwapService {
   async swapIccToSol(
     wallet: any,
     amountIn: number,
-    slippageTolerance: number = 1 // 1% slippage
+    slippageTolerance: number = 1
   ): Promise<SwapResult> {
+    console.log('RaydiumSwapService - swapIccToSol called (READ-ONLY MODE)');
+    
     try {
       if (!wallet.publicKey) {
         return { success: false, error: 'Wallet not connected' };
       }
 
-      const poolKeys = await this.getIccSolPoolInfo();
-      if (!poolKeys) {
-        return { success: false, error: 'Could not fetch pool information' };
-      }
-
-      // Create token objects
-      const iccToken = new Token(TOKEN_PROGRAM_ID, ICC_MINT, 9, 'ICC', 'Infinita Coin');
-      const solToken = new Token(TOKEN_PROGRAM_ID, SOL_MINT, 9, 'SOL', 'Solana');
-
-      // Calculate token amounts
-      const tokenAmountIn = new TokenAmount(iccToken, amountIn * Math.pow(10, 9));
+      console.log('RaydiumSwapService - Simulating swap transaction...');
       
-      // Get pool info for calculations
-      const poolInfo = await Liquidity.fetchInfo({
-        connection: this.connection,
-        poolKeys,
-      });
-
-      // Calculate amount out
-      const { amountOut, minAmountOut } = Liquidity.computeAmountOut({
-        poolKeys,
-        poolInfo,
-        amountIn: tokenAmountIn,
-        currencyOut: solToken,
-        slippage: new Percent(slippageTolerance, 100),
-      });
-
-      console.log('Swap calculation:', {
-        amountIn: tokenAmountIn.toFixed(),
-        amountOut: amountOut.toFixed(),
-        minAmountOut: minAmountOut.toFixed(),
-      });
-
-      // Get associated token addresses
-      const userIccTokenAccount = await getAssociatedTokenAddress(
-        ICC_MINT,
-        wallet.publicKey
-      );
-
-      const userSolTokenAccount = await getAssociatedTokenAddress(
-        SOL_MINT,
-        wallet.publicKey
-      );
-
-      // Check if token accounts exist
-      const accounts = await this.connection.getMultipleAccountsInfo([
-        userIccTokenAccount,
-        userSolTokenAccount,
-      ]);
-
-      const instructions = [];
-
-      // Create SOL token account if it doesn't exist
-      if (!accounts[1]) {
-        instructions.push(
-          createAssociatedTokenAccountInstruction(
-            wallet.publicKey,
-            userSolTokenAccount,
-            wallet.publicKey,
-            SOL_MINT
-          )
-        );
-      }
-
-      // Create swap instruction
-      const swapInstruction = await Liquidity.makeSwapInstructionSimple({
-        connection: this.connection,
-        poolKeys,
-        userKeys: {
-          tokenAccounts: [
-            { pubkey: userIccTokenAccount, accountInfo: null, programId: TOKEN_PROGRAM_ID },
-            { pubkey: userSolTokenAccount, accountInfo: null, programId: TOKEN_PROGRAM_ID }
-          ],
-          owner: wallet.publicKey,
-        },
-        amountIn: tokenAmountIn.raw,
-        amountOut: minAmountOut.raw,
-        fixedSide: 'in',
-        makeTxVersion: 0,
-      });
-
-      instructions.push(...swapInstruction.innerTransactions[0].instructions);
-
-      // Create and send transaction
-      const transaction = new Transaction().add(...instructions);
-      transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-      transaction.feePayer = wallet.publicKey;
-
-      // Sign and send transaction
-      const signedTransaction = await wallet.signTransaction(transaction);
-      const signature = await this.connection.sendRawTransaction(signedTransaction.serialize());
-
-      // Confirm transaction
-      await this.connection.confirmTransaction(signature, 'confirmed');
-
-      console.log('Swap successful:', signature);
-      return { success: true, signature };
+      // Simulate processing time
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      console.log('RaydiumSwapService - Swap simulation completed');
+      return { 
+        success: true, 
+        signature: 'SIMULATION_' + Date.now().toString()
+      };
 
     } catch (error) {
-      console.error('Swap failed:', error);
+      console.error('RaydiumSwapService - Swap failed:', error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error occurred' 
@@ -178,12 +176,17 @@ export class RaydiumSwapService {
   }
 
   async getTokenBalance(mint: PublicKey, owner: PublicKey): Promise<number> {
+    console.log(`RaydiumSwapService - Fetching token balance for ${mint.toString()}...`);
+    
     try {
       const tokenAccount = await getAssociatedTokenAddress(mint, owner);
       const accountInfo = await this.connection.getTokenAccountBalance(tokenAccount);
-      return accountInfo.value.uiAmount || 0;
+      const balance = accountInfo.value.uiAmount || 0;
+      
+      console.log(`RaydiumSwapService - Token balance retrieved: ${balance}`);
+      return balance;
     } catch (error) {
-      console.error('Error fetching token balance:', error);
+      console.error('RaydiumSwapService - Error fetching token balance:', error);
       return 0;
     }
   }

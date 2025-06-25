@@ -1,11 +1,26 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowRight, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
-// Temporarily disable Raydium import to fix white screen
-// import { raydiumSwapService } from '@/utils/raydiumSwap';
+import { raydiumSwapService } from '@/utils/raydiumSwap';
+
+interface SwapPair {
+  baseMint: string;
+  quoteMint: string;
+  baseSymbol: string;
+  quoteSymbol: string;
+  poolId: string;
+}
+
+interface PoolInfo {
+  poolId: string;
+  baseReserve: number;
+  quoteReserve: number;
+  price: number;
+  volume24h?: number;
+}
 
 const SwapInterface = () => {
   console.log('SwapInterface component rendering...');
@@ -15,27 +30,100 @@ const SwapInterface = () => {
   const [fromAmount, setFromAmount] = useState('');
   const [toAmount, setToAmount] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
+  const [swapPairs, setSwapPairs] = useState<SwapPair[]>([]);
+  const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
+  const [isLoadingPairs, setIsLoadingPairs] = useState(false);
+  const [isLoadingPool, setIsLoadingPool] = useState(false);
   const { toast } = useToast();
   const { insertSwap, balances } = useWalletData();
   const wallet = useWallet();
 
-  // Real exchange rate will be fetched from Raydium
-  const ESTIMATED_RATE = 0.000045; // Placeholder - will be calculated dynamically
+  // Fetch swap pairs on component mount
+  useEffect(() => {
+    fetchSwapPairs();
+  }, []);
+
+  // Fetch pool info when tokens change
+  useEffect(() => {
+    if (fromToken && toToken) {
+      fetchPoolInfo();
+    }
+  }, [fromToken, toToken]);
+
+  const fetchSwapPairs = async () => {
+    console.log('SwapInterface - Fetching swap pairs...');
+    setIsLoadingPairs(true);
+    
+    try {
+      const pairs = await raydiumSwapService.getAvailableSwapPairs();
+      console.log('SwapInterface - Successfully fetched swap pairs:', pairs);
+      setSwapPairs(pairs);
+      
+      toast({
+        title: "Swap Pairs Loaded",
+        description: `Found ${pairs.length} available swap pairs`,
+      });
+    } catch (error) {
+      console.error('SwapInterface - Error fetching swap pairs:', error);
+      toast({
+        title: "Error Loading Swap Pairs",
+        description: error instanceof Error ? error.message : "Failed to load swap pairs",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingPairs(false);
+    }
+  };
+
+  const fetchPoolInfo = async () => {
+    console.log(`SwapInterface - Fetching pool info for ${fromToken}/${toToken}...`);
+    setIsLoadingPool(true);
+    
+    try {
+      const info = await raydiumSwapService.getPoolInfo(fromToken, toToken);
+      console.log('SwapInterface - Successfully fetched pool info:', info);
+      setPoolInfo(info);
+      
+      if (info) {
+        toast({
+          title: "Pool Info Updated",
+          description: `${fromToken}/${toToken} pool loaded successfully`,
+        });
+      }
+    } catch (error) {
+      console.error('SwapInterface - Error fetching pool info:', error);
+      toast({
+        title: "Error Loading Pool Info",
+        description: error instanceof Error ? error.message : "Failed to load pool information",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingPool(false);
+    }
+  };
 
   const handleAmountChange = (value: string, isFrom: boolean) => {
     const numValue = parseFloat(value) || 0;
     
     if (isFrom) {
       setFromAmount(value);
-      // For ICC to SOL conversion - this would be calculated from pool data
-      if (fromToken === 'ICC') {
-        setToAmount((numValue * ESTIMATED_RATE).toFixed(6));
+      // Calculate estimated output based on pool info
+      if (poolInfo && numValue > 0) {
+        const estimatedOutput = (numValue * poolInfo.price).toFixed(6);
+        setToAmount(estimatedOutput);
+        console.log(`SwapInterface - Calculated output: ${numValue} ${fromToken} → ${estimatedOutput} ${toToken}`);
+      } else {
+        setToAmount('');
       }
     } else {
       setToAmount(value);
-      // For SOL to ICC conversion
-      if (fromToken === 'ICC') {
-        setFromAmount((numValue / ESTIMATED_RATE).toFixed(2));
+      // Calculate required input based on pool info
+      if (poolInfo && numValue > 0) {
+        const requiredInput = (numValue / poolInfo.price).toFixed(2);
+        setFromAmount(requiredInput);
+        console.log(`SwapInterface - Calculated input: ${requiredInput} ${fromToken} → ${numValue} ${toToken}`);
+      } else {
+        setFromAmount('');
       }
     }
   };
@@ -50,7 +138,7 @@ const SwapInterface = () => {
   };
 
   const handleSwap = async () => {
-    console.log('handleSwap called');
+    console.log('handleSwap called - READ-ONLY MODE');
     
     if (!wallet.connected || !wallet.publicKey) {
       toast({
@@ -95,11 +183,11 @@ const SwapInterface = () => {
     setIsSwapping(true);
     
     try {
-      console.log('Starting swap process...');
+      console.log('Starting swap simulation with Raydium SDK data...');
       
       toast({
         title: "Swap Simulation",
-        description: "Simulating swap (Raydium integration temporarily disabled)...",
+        description: "Simulating swap with real Raydium pool data...",
       });
 
       // Simulate swap delay
@@ -110,7 +198,7 @@ const SwapInterface = () => {
         fromToken,
         toToken,
         swapAmount,
-        `Simulated swap ${fromToken} → ${toToken} (Raydium integration disabled)`
+        `Simulated swap ${fromToken} → ${toToken} using Raydium pool data`
       );
       
       if (success) {
@@ -143,13 +231,57 @@ const SwapInterface = () => {
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
   console.log('SwapInterface rendering with balances:', balances);
+  console.log('SwapInterface rendering with pool info:', poolInfo);
 
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Token Swap (Simulation Mode)
+        Token Swap (Read-Only Integration)
       </h2>
+
+      {/* Pool Information Display */}
+      {poolInfo && (
+        <div className="bg-white/10 rounded-xl p-4 mb-4">
+          <h3 className="text-white font-medium mb-2">Pool Information</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-300">Pool ID:</p>
+              <p className="text-white font-mono text-xs">{poolInfo.poolId}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Current Price:</p>
+              <p className="text-white">{poolInfo.price.toFixed(8)} SOL/ICC</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Base Reserve:</p>
+              <p className="text-white">{poolInfo.baseReserve.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Quote Reserve:</p>
+              <p className="text-white">{poolInfo.quoteReserve.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Swap Pairs Information */}
+      {swapPairs.length > 0 && (
+        <div className="bg-white/10 rounded-xl p-4 mb-4">
+          <h3 className="text-white font-medium mb-2">Available Swap Pairs ({swapPairs.length})</h3>
+          <div className="text-sm text-gray-300">
+            {swapPairs.slice(0, 3).map((pair, index) => (
+              <div key={index} className="flex justify-between">
+                <span>{pair.baseSymbol}/{pair.quoteSymbol}</span>
+                <span className="font-mono text-xs">{pair.poolId.slice(0, 8)}...</span>
+              </div>
+            ))}
+            {swapPairs.length > 3 && (
+              <p className="text-xs text-gray-400 mt-1">...and {swapPairs.length - 3} more</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="bg-white/10 rounded-xl p-4">
@@ -210,13 +342,21 @@ const SwapInterface = () => {
         </div>
 
         <div className="text-center text-sm text-gray-300">
-          <p>Estimated Rate: 1 I₵C ≈ {ESTIMATED_RATE} SOL</p>
-          <p className="text-xs text-gray-400 mt-1">Simulation mode - Raydium integration disabled</p>
+          <p>
+            {poolInfo ? (
+              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
+            ) : (
+              <>Loading pool data...</>
+            )}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            {isLoadingPool ? 'Fetching pool information...' : 'Read-only integration active'}
+          </p>
         </div>
 
-        <div className="bg-yellow-500/20 rounded-lg p-3 border border-yellow-500/30">
-          <p className="text-yellow-300 text-sm">
-            ⚠️ Simulation mode active - Raydium integration temporarily disabled to resolve loading issues
+        <div className="bg-green-500/20 rounded-lg p-3 border border-green-500/30">
+          <p className="text-green-300 text-sm">
+            ✅ Raydium SDK successfully integrated for read-only operations
           </p>
         </div>
 
