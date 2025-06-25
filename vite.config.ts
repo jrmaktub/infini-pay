@@ -20,12 +20,19 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    global: 'globalThis',
+    'process.env': {}
+  },
   optimizeDeps: {
     include: [
       '@solana/wallet-adapter-phantom',
       '@solana/wallet-adapter-solflare',
       '@solana/wallet-adapter-react',
-      '@solana/web3.js'
+      '@solana/web3.js',
+      '@raydium-io/raydium-sdk',
+      'buffer',
+      'process'
     ],
   },
 }));
