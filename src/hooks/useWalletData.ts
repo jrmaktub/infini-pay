@@ -3,8 +3,9 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { raydiumSwapService } from '@/utils/raydiumSwap';
-import { PublicKey } from '@solana/web3.js';
+// Temporarily comment out Raydium import to isolate issues
+// import { raydiumSwapService } from '@/utils/raydiumSwap';
+// import { PublicKey } from '@solana/web3.js';
 
 interface SwapRecord {
   id: string;
@@ -19,10 +20,11 @@ interface SwapRecord {
 interface WalletBalances {
   icc_balance: number;
   usdc_balance: number;
-  sol_balance?: number; // Add SOL balance
+  sol_balance?: number;
 }
 
-const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
+// Temporarily comment out to isolate issues
+// const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
 
 export const useWalletData = () => {
   const { publicKey, connected } = useWallet();
@@ -35,9 +37,12 @@ export const useWalletData = () => {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
+  console.log('useWalletData hook - connected:', connected, 'publicKey:', publicKey?.toString());
+
   // Insert wallet on connection
   const insertWallet = async (walletAddress: string) => {
     try {
+      console.log('Inserting wallet:', walletAddress);
       const { error } = await supabase
         .from('wallets')
         .insert([{ wallet: walletAddress }])
@@ -45,20 +50,23 @@ export const useWalletData = () => {
       
       if (error && error.code !== '23505') { // Ignore duplicate key errors
         console.error('Error inserting wallet:', error);
+      } else {
+        console.log('Wallet inserted successfully');
       }
     } catch (error) {
       console.error('Error inserting wallet:', error);
     }
   };
 
-  // Fetch wallet balances (including real on-chain balances)
+  // Fetch wallet balances (simplified version without on-chain calls)
   const fetchBalances = async () => {
     if (!publicKey) return;
 
     try {
+      console.log('Fetching balances for wallet:', publicKey.toString());
       const walletAddress = publicKey.toString();
       
-      // Fetch database balances
+      // Fetch database balances only for now
       const { data, error } = await supabase
         .from('wallets')
         .select('icc_balance, usdc_balance')
@@ -70,27 +78,22 @@ export const useWalletData = () => {
         return;
       }
 
-      // Fetch real on-chain ICC balance
-      const realIccBalance = await raydiumSwapService.getTokenBalance(ICC_MINT, publicKey);
-      
-      // Get SOL balance from wallet
-      const connection = raydiumSwapService['connection'];
-      const solBalance = await connection.getBalance(publicKey);
-      const solBalanceInSol = solBalance / 1e9; // Convert lamports to SOL
-
+      // Temporarily use mock balances to avoid on-chain calls
       if (data) {
         setBalances({
-          icc_balance: data.icc_balance || 0,
-          usdc_balance: data.usdc_balance || 0,
-          sol_balance: solBalanceInSol
+          icc_balance: data.icc_balance || 1000, // Mock balance
+          usdc_balance: data.usdc_balance || 500, // Mock balance
+          sol_balance: 2.5 // Mock SOL balance
         });
+        console.log('Balances set from database:', data);
       } else {
-        // If no database record, use on-chain balance
+        // If no database record, use mock balances
         setBalances({
-          icc_balance: realIccBalance,
-          usdc_balance: 0,
-          sol_balance: solBalanceInSol
+          icc_balance: 1000,
+          usdc_balance: 500,
+          sol_balance: 2.5
         });
+        console.log('Using mock balances');
       }
     } catch (error) {
       console.error('Error fetching balances:', error);
@@ -138,22 +141,14 @@ export const useWalletData = () => {
       setLoading(true);
       const walletAddress = publicKey.toString();
       
-      // For real swaps, we don't need to manage database balances for SOL
-      // as it's managed on-chain. We'll only update ICC/USDC in our database.
-      
       let newBalances = { ...balances };
       
-      if (tokenFrom === 'ICC' && tokenTo === 'SOL') {
-        // Real swap already executed, just update our database record
-        newBalances.icc_balance -= amount;
-        // SOL balance will be updated by fetching from chain
-      } else if (tokenFrom === 'ICC' && tokenTo === 'USDC') {
-        // Simulated swap logic for ICC <-> USDC
+      // Simplified swap logic for testing
+      if (tokenFrom === 'ICC' && tokenTo === 'USDC') {
         const EXCHANGE_RATE = 0.95;
         newBalances.icc_balance -= amount;
         newBalances.usdc_balance += amount * EXCHANGE_RATE;
       } else if (tokenFrom === 'USDC' && tokenTo === 'ICC') {
-        // Simulated swap logic for USDC <-> ICC
         const EXCHANGE_RATE = 0.95;
         newBalances.usdc_balance -= amount;
         newBalances.icc_balance += amount / EXCHANGE_RATE;
@@ -161,7 +156,7 @@ export const useWalletData = () => {
 
       // Update balances in database
       const balanceUpdateSuccess = await updateBalances(newBalances);
-      if (!balanceUpdateSuccess && tokenTo !== 'SOL') {
+      if (!balanceUpdateSuccess) {
         toast({
           title: "Error",
           description: "Failed to update balances",
@@ -191,7 +186,7 @@ export const useWalletData = () => {
         return false;
       }
 
-      // Refresh balances and swaps after successful insert
+      // Refresh data after successful insert
       await fetchBalances();
       await fetchSwaps();
       return true;
@@ -211,6 +206,7 @@ export const useWalletData = () => {
       setLoading(true);
       const walletAddress = publicKey.toString();
       
+      console.log('Fetching swaps for wallet:', walletAddress);
       const { data, error } = await supabase
         .from('swaps')
         .select('*')
@@ -222,6 +218,7 @@ export const useWalletData = () => {
         return;
       }
 
+      console.log('Swaps fetched:', data?.length || 0);
       setSwaps(data || []);
     } catch (error) {
       console.error('Error fetching swaps:', error);
@@ -232,12 +229,16 @@ export const useWalletData = () => {
 
   // Handle wallet connection
   useEffect(() => {
+    console.log('useWalletData effect triggered - connected:', connected, 'publicKey exists:', !!publicKey);
+    
     if (connected && publicKey) {
       const walletAddress = publicKey.toString();
+      console.log('Wallet connected, initializing data for:', walletAddress);
       insertWallet(walletAddress);
       fetchBalances();
       fetchSwaps();
     } else {
+      console.log('Wallet not connected, resetting data');
       setSwaps([]);
       setBalances({ icc_balance: 0, usdc_balance: 0, sol_balance: 0 });
     }

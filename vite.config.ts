@@ -24,7 +24,8 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     global: 'globalThis',
-    'process.env': {}
+    'process.env': {},
+    'process.browser': true
   },
   optimizeDeps: {
     include: [
