@@ -1,6 +1,5 @@
-
 import { useState, useEffect } from 'react';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -34,6 +33,8 @@ const SwapInterface = () => {
   const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
   const [isLoadingPairs, setIsLoadingPairs] = useState(false);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
+  const [sdkInitialized, setSdkInitialized] = useState(false);
+  const [sdkError, setSdkError] = useState<string | null>(null);
   const { toast } = useToast();
   const { insertSwap, balances } = useWalletData();
   const wallet = useWallet();
@@ -50,8 +51,52 @@ const SwapInterface = () => {
     }
   }, [fromToken, toToken]);
 
+  // Initialize Raydium SDK when component mounts
+  useEffect(() => {
+    initializeRaydiumSDK();
+  }, []);
+
+  const initializeRaydiumSDK = async () => {
+    console.log('SwapInterface - Initializing Raydium SDK...');
+    try {
+      const success = await raydiumSwapService.initialize();
+      if (success) {
+        setSdkInitialized(true);
+        console.log('SwapInterface - Raydium SDK initialized successfully');
+        toast({
+          title: "SDK Initialized",
+          description: "Raydium SDK loaded successfully",
+        });
+      } else {
+        setSdkError('Failed to initialize Raydium SDK');
+        console.error('SwapInterface - Raydium SDK initialization failed');
+        toast({
+          title: "SDK Error",
+          description: "Failed to initialize Raydium SDK - using fallback mode",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown SDK error';
+      setSdkError(errorMessage);
+      console.error('SwapInterface - Raydium SDK initialization error:', error);
+      toast({
+        title: "SDK Error",
+        description: errorMessage,
+        variant: "destructive"
+      });
+    }
+  };
+
   const fetchSwapPairs = async () => {
     console.log('SwapInterface - Fetching swap pairs...');
+    
+    if (!sdkInitialized) {
+      console.log('SwapInterface - SDK not initialized, using fallback data');
+      setSwapPairs([]);
+      return;
+    }
+    
     setIsLoadingPairs(true);
     
     try {
@@ -77,6 +122,19 @@ const SwapInterface = () => {
 
   const fetchPoolInfo = async () => {
     console.log(`SwapInterface - Fetching pool info for ${fromToken}/${toToken}...`);
+    
+    if (!sdkInitialized) {
+      console.log('SwapInterface - SDK not initialized, using fallback pool info');
+      setPoolInfo({
+        poolId: 'FALLBACK_POOL',
+        baseReserve: 1000000,
+        quoteReserve: 45,
+        price: 0.000045,
+        volume24h: 0
+      });
+      return;
+    }
+    
     setIsLoadingPool(true);
     
     try {
@@ -237,13 +295,40 @@ const SwapInterface = () => {
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Token Swap (Read-Only Integration)
+        Token Swap
+        {sdkInitialized && <span className="text-green-400 text-sm">(SDK Active)</span>}
+        {sdkError && <span className="text-red-400 text-sm">(Fallback Mode)</span>}
       </h2>
+
+      {/* SDK Status Display */}
+      {sdkError && (
+        <div className="bg-yellow-500/20 rounded-xl p-4 mb-4 border border-yellow-500/30">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle className="text-yellow-400" size={16} />
+            <h3 className="text-yellow-300 font-medium">SDK Status</h3>
+          </div>
+          <p className="text-yellow-200 text-sm">
+            Raydium SDK failed to initialize: {sdkError}
+          </p>
+          <p className="text-yellow-200 text-sm mt-1">
+            Using fallback mode with limited functionality.
+          </p>
+          <button
+            onClick={initializeRaydiumSDK}
+            className="mt-2 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded text-sm hover:bg-yellow-500/30"
+          >
+            Retry SDK Initialization
+          </button>
+        </div>
+      )}
 
       {/* Pool Information Display */}
       {poolInfo && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
-          <h3 className="text-white font-medium mb-2">Pool Information</h3>
+          <h3 className="text-white font-medium mb-2">
+            Pool Information 
+            {!sdkInitialized && <span className="text-gray-400 text-sm">(Fallback Data)</span>}
+          </h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-300">Pool ID:</p>
@@ -344,26 +429,26 @@ const SwapInterface = () => {
         <div className="text-center text-sm text-gray-300">
           <p>
             {poolInfo ? (
-              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
+              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL {sdkInitialized ? '(Live from Raydium)' : '(Fallback Data)'}</>
             ) : (
               <>Loading pool data...</>
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : 'Read-only integration active'}
+            {isLoadingPool ? 'Fetching pool information...' : sdkInitialized ? 'SDK integration active' : 'Fallback mode active'}
           </p>
         </div>
 
-        <div className="bg-green-500/20 rounded-lg p-3 border border-green-500/30">
-          <p className="text-green-300 text-sm">
-            ✅ Raydium SDK successfully integrated for read-only operations
+        <div className={`rounded-lg p-3 border ${sdkInitialized ? 'bg-green-500/20 border-green-500/30' : 'bg-yellow-500/20 border-yellow-500/30'}`}>
+          <p className={`text-sm ${sdkInitialized ? 'text-green-300' : 'text-yellow-300'}`}>
+            {sdkInitialized ? '✅ Raydium SDK successfully integrated and active' : '⚠️ Using fallback mode - limited functionality'}
           </p>
         </div>
 
         <button
           onClick={handleSwap}
           disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected}
-          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
         >
           {isSwapping ? 'Processing Simulation...' : !wallet.connected ? 'Connect Wallet' : 'Simulate Swap'}
         </button>

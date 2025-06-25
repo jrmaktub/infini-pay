@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { runPolyfillTest } from "@/utils/polyfillTest";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -12,6 +13,9 @@ const queryClient = new QueryClient();
 
 const App = () => {
   console.log('App component rendering...');
+  
+  // Run polyfill test early in the app lifecycle
+  runPolyfillTest();
   
   return (
     <ErrorBoundary>
