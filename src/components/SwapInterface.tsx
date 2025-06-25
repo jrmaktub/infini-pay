@@ -1,9 +1,13 @@
+
 import { useState, useEffect } from 'react';
-import { ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
+import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
+import { useRaydiumSDK } from '@/hooks/useRaydiumSDK';
+import SwapLoadingSkeleton from './SwapLoadingSkeleton';
+import SwapErrorFallback from './SwapErrorFallback';
 
 interface SwapPair {
   baseMint: string;
@@ -33,70 +37,40 @@ const SwapInterface = () => {
   const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
   const [isLoadingPairs, setIsLoadingPairs] = useState(false);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
-  const [sdkInitialized, setSdkInitialized] = useState(false);
-  const [sdkError, setSdkError] = useState<string | null>(null);
+  
   const { toast } = useToast();
   const { insertSwap, balances } = useWalletData();
   const wallet = useWallet();
+  const { status, error, isReady, retry, canRetry, retryCount } = useRaydiumSDK();
 
-  // Fetch swap pairs on component mount
+  // Fetch data when SDK becomes ready
   useEffect(() => {
-    fetchSwapPairs();
-  }, []);
-
-  // Fetch pool info when tokens change
-  useEffect(() => {
-    if (fromToken && toToken) {
-      fetchPoolInfo();
-    }
-  }, [fromToken, toToken]);
-
-  // Initialize Raydium SDK when component mounts
-  useEffect(() => {
-    initializeRaydiumSDK();
-  }, []);
-
-  const initializeRaydiumSDK = async () => {
-    console.log('SwapInterface - Initializing Raydium SDK...');
-    try {
-      const success = await raydiumSwapService.initialize();
-      if (success) {
-        setSdkInitialized(true);
-        console.log('SwapInterface - Raydium SDK initialized successfully');
-        toast({
-          title: "SDK Initialized",
-          description: "Raydium SDK loaded successfully",
-        });
-      } else {
-        setSdkError('Failed to initialize Raydium SDK');
-        console.error('SwapInterface - Raydium SDK initialization failed');
-        toast({
-          title: "SDK Error",
-          description: "Failed to initialize Raydium SDK - using fallback mode",
-          variant: "destructive"
-        });
+    if (isReady) {
+      fetchSwapPairs();
+      if (fromToken && toToken) {
+        fetchPoolInfo();
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown SDK error';
-      setSdkError(errorMessage);
-      console.error('SwapInterface - Raydium SDK initialization error:', error);
-      toast({
-        title: "SDK Error",
-        description: errorMessage,
-        variant: "destructive"
-      });
     }
-  };
+  }, [isReady, fromToken, toToken]);
+
+  // Show appropriate loading/error states
+  if (status === 'initializing' || status === 'retrying') {
+    return <SwapLoadingSkeleton />;
+  }
+
+  if (status === 'error' && error) {
+    return (
+      <SwapErrorFallback 
+        error={error}
+        onRetry={retry}
+        canRetry={canRetry}
+        retryCount={retryCount}
+      />
+    );
+  }
 
   const fetchSwapPairs = async () => {
     console.log('SwapInterface - Fetching swap pairs...');
-    
-    if (!sdkInitialized) {
-      console.log('SwapInterface - SDK not initialized, using fallback data');
-      setSwapPairs([]);
-      return;
-    }
-    
     setIsLoadingPairs(true);
     
     try {
@@ -122,19 +96,6 @@ const SwapInterface = () => {
 
   const fetchPoolInfo = async () => {
     console.log(`SwapInterface - Fetching pool info for ${fromToken}/${toToken}...`);
-    
-    if (!sdkInitialized) {
-      console.log('SwapInterface - SDK not initialized, using fallback pool info');
-      setPoolInfo({
-        poolId: 'FALLBACK_POOL',
-        baseReserve: 1000000,
-        quoteReserve: 45,
-        price: 0.000045,
-        volume24h: 0
-      });
-      return;
-    }
-    
     setIsLoadingPool(true);
     
     try {
@@ -165,7 +126,6 @@ const SwapInterface = () => {
     
     if (isFrom) {
       setFromAmount(value);
-      // Calculate estimated output based on pool info
       if (poolInfo && numValue > 0) {
         const estimatedOutput = (numValue * poolInfo.price).toFixed(6);
         setToAmount(estimatedOutput);
@@ -175,7 +135,6 @@ const SwapInterface = () => {
       }
     } else {
       setToAmount(value);
-      // Calculate required input based on pool info
       if (poolInfo && numValue > 0) {
         const requiredInput = (numValue / poolInfo.price).toFixed(2);
         setFromAmount(requiredInput);
@@ -187,7 +146,6 @@ const SwapInterface = () => {
   };
 
   const handleSwapTokens = () => {
-    // For now, we only support ICC -> SOL
     toast({
       title: "Swap Direction",
       description: "Currently only ICC → SOL swaps are supported",
@@ -218,7 +176,6 @@ const SwapInterface = () => {
 
     const swapAmount = parseFloat(fromAmount);
     
-    // Only support ICC to SOL for now
     if (fromToken !== 'ICC' || toToken !== 'SOL') {
       toast({
         title: "Unsupported Swap",
@@ -248,10 +205,8 @@ const SwapInterface = () => {
         description: "Simulating swap with real Raydium pool data...",
       });
 
-      // Simulate swap delay
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Record swap in database as simulation
       const success = await insertSwap(
         fromToken,
         toToken,
@@ -288,46 +243,72 @@ const SwapInterface = () => {
 
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
-  console.log('SwapInterface rendering with balances:', balances);
-  console.log('SwapInterface rendering with pool info:', poolInfo);
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'ready':
+        return <CheckCircle className="text-green-400" size={16} />;
+      case 'initializing':
+      case 'retrying':
+        return <Clock className="text-yellow-400 animate-pulse" size={16} />;
+      default:
+        return <AlertCircle className="text-red-400" size={16} />;
+    }
+  };
+
+  const getStatusText = () => {
+    switch (status) {
+      case 'ready':
+        return 'SDK Active';
+      case 'initializing':
+        return 'Initializing...';
+      case 'retrying':
+        return `Retrying... (${retryCount}/3)`;
+      default:
+        return 'SDK Error';
+    }
+  };
 
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
         Token Swap
-        {sdkInitialized && <span className="text-green-400 text-sm">(SDK Active)</span>}
-        {sdkError && <span className="text-red-400 text-sm">(Fallback Mode)</span>}
+        <div className="flex items-center gap-1">
+          {getStatusIcon()}
+          <span className={`text-sm ${status === 'ready' ? 'text-green-400' : status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
+            ({getStatusText()})
+          </span>
+        </div>
       </h2>
 
       {/* SDK Status Display */}
-      {sdkError && (
-        <div className="bg-yellow-500/20 rounded-xl p-4 mb-4 border border-yellow-500/30">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="text-yellow-400" size={16} />
-            <h3 className="text-yellow-300 font-medium">SDK Status</h3>
-          </div>
-          <p className="text-yellow-200 text-sm">
-            Raydium SDK failed to initialize: {sdkError}
-          </p>
-          <p className="text-yellow-200 text-sm mt-1">
-            Using fallback mode with limited functionality.
-          </p>
-          <button
-            onClick={initializeRaydiumSDK}
-            className="mt-2 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded text-sm hover:bg-yellow-500/30"
-          >
-            Retry SDK Initialization
-          </button>
-        </div>
-      )}
+      <div className={`rounded-lg p-3 border mb-4 ${
+        status === 'ready' 
+          ? 'bg-green-500/20 border-green-500/30' 
+          : status === 'error'
+          ? 'bg-red-500/20 border-red-500/30'
+          : 'bg-yellow-500/20 border-yellow-500/30'
+      }`}>
+        <p className={`text-sm ${
+          status === 'ready' 
+            ? 'text-green-300' 
+            : status === 'error'
+            ? 'text-red-300'
+            : 'text-yellow-300'
+        }`}>
+          {status === 'ready' && '✅ Raydium SDK successfully integrated and active'}
+          {status === 'initializing' && '🔄 Initializing Raydium SDK...'}
+          {status === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
+          {status === 'error' && '❌ SDK error - using fallback mode'}
+        </p>
+      </div>
 
-      {/* Pool Information Display */}
+      {/* Pool Information */}
       {poolInfo && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
-          <h3 className="text-white font-medium mb-2">
-            Pool Information 
-            {!sdkInitialized && <span className="text-gray-400 text-sm">(Fallback Data)</span>}
+          <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+            Pool Information
+            {isLoadingPool && <Clock className="text-blue-400 animate-spin" size={16} />}
           </h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
@@ -353,7 +334,10 @@ const SwapInterface = () => {
       {/* Swap Pairs Information */}
       {swapPairs.length > 0 && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
-          <h3 className="text-white font-medium mb-2">Available Swap Pairs ({swapPairs.length})</h3>
+          <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+            Available Swap Pairs ({swapPairs.length})
+            {isLoadingPairs && <Clock className="text-blue-400 animate-spin" size={16} />}
+          </h3>
           <div className="text-sm text-gray-300">
             {swapPairs.slice(0, 3).map((pair, index) => (
               <div key={index} className="flex justify-between">
@@ -368,7 +352,9 @@ const SwapInterface = () => {
         </div>
       )}
 
+      {/* Swap Form */}
       <div className="space-y-4">
+        {/* From Token */}
         <div className="bg-white/10 rounded-xl p-4">
           <label className="text-gray-300 text-sm block mb-2">From</label>
           <div className="flex gap-3">
@@ -394,6 +380,7 @@ const SwapInterface = () => {
           </p>
         </div>
 
+        {/* Swap Arrow */}
         <div className="flex justify-center">
           <button
             onClick={handleSwapTokens}
@@ -404,6 +391,7 @@ const SwapInterface = () => {
           </button>
         </div>
 
+        {/* To Token */}
         <div className="bg-white/10 rounded-xl p-4">
           <label className="text-gray-300 text-sm block mb-2">To</label>
           <div className="flex gap-3">
@@ -426,31 +414,28 @@ const SwapInterface = () => {
           </div>
         </div>
 
+        {/* Exchange Rate */}
         <div className="text-center text-sm text-gray-300">
           <p>
             {poolInfo ? (
-              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL {sdkInitialized ? '(Live from Raydium)' : '(Fallback Data)'}</>
+              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
             ) : (
               <>Loading pool data...</>
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : sdkInitialized ? 'SDK integration active' : 'Fallback mode active'}
+            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time data' : 'Fallback data'}
           </p>
         </div>
 
-        <div className={`rounded-lg p-3 border ${sdkInitialized ? 'bg-green-500/20 border-green-500/30' : 'bg-yellow-500/20 border-yellow-500/30'}`}>
-          <p className={`text-sm ${sdkInitialized ? 'text-green-300' : 'text-yellow-300'}`}>
-            {sdkInitialized ? '✅ Raydium SDK successfully integrated and active' : '⚠️ Using fallback mode - limited functionality'}
-          </p>
-        </div>
-
+        {/* Swap Button */}
         <button
           onClick={handleSwap}
-          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected}
+          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || status !== 'ready'}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+          aria-label={isSwapping ? 'Processing swap simulation' : 'Execute swap simulation'}
         >
-          {isSwapping ? 'Processing Simulation...' : !wallet.connected ? 'Connect Wallet' : 'Simulate Swap'}
+          {isSwapping ? 'Processing Simulation...' : !wallet.connected ? 'Connect Wallet' : status !== 'ready' ? 'Service Unavailable' : 'Simulate Swap'}
         </button>
       </div>
     </div>
