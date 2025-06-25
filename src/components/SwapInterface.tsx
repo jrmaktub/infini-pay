@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ArrowRight, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useWalletData } from '@/hooks/useWalletData';
 
 const SwapInterface = () => {
   const [fromToken, setFromToken] = useState('ICC');
@@ -10,6 +11,7 @@ const SwapInterface = () => {
   const [toAmount, setToAmount] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
   const { toast } = useToast();
+  const { insertSwap } = useWalletData();
 
   const EXCHANGE_RATE = 0.95; // 1 ICC = 0.95 USDC
 
@@ -58,14 +60,25 @@ const SwapInterface = () => {
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    toast({
-      title: "Swap Successful!",
-      description: `Swapped ${fromAmount} ${fromToken} for ${toAmount} ${toToken}`,
-    });
+    // Record swap in Supabase
+    const success = await insertSwap(
+      fromToken,
+      toToken,
+      parseFloat(fromAmount),
+      `${fromToken} → ${toToken} swap`
+    );
+    
+    if (success) {
+      toast({
+        title: "Swap Successful!",
+        description: `Swapped ${fromAmount} ${fromToken} for ${toAmount} ${toToken}`,
+      });
+      
+      setFromAmount('');
+      setToAmount('');
+    }
     
     setIsSwapping(false);
-    setFromAmount('');
-    setToAmount('');
   };
 
   return (

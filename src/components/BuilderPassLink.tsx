@@ -2,14 +2,26 @@
 import { useState } from 'react';
 import { Shield, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { supabase } from '@/integrations/supabase/client';
 
 const BuilderPassLink = () => {
   const [passId, setPassId] = useState('');
   const [isLinked, setIsLinked] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const { toast } = useToast();
+  const { publicKey, connected } = useWallet();
 
   const handleLinkPass = async () => {
+    if (!connected || !publicKey) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet first",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if (!passId.trim()) {
       toast({
         title: "Missing Pass ID",
@@ -21,16 +33,40 @@ const BuilderPassLink = () => {
 
     setIsLinking(true);
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setIsLinked(true);
-    toast({
-      title: "Builder's Pass Linked!",
-      description: "Your civic identity has been verified",
-    });
-    
-    setIsLinking(false);
+    try {
+      const walletAddress = publicKey.toString();
+      
+      // Update the wallet record with builder pass
+      const { error } = await supabase
+        .from('wallets')
+        .update({ builder_pass: passId.trim() })
+        .eq('wallet', walletAddress);
+
+      if (error) {
+        console.error('Error linking builder pass:', error);
+        toast({
+          title: "Error",
+          description: "Failed to link Builder's Pass",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      setIsLinked(true);
+      toast({
+        title: "Builder's Pass Linked!",
+        description: "Your civic identity has been verified",
+      });
+    } catch (error) {
+      console.error('Error linking builder pass:', error);
+      toast({
+        title: "Error",
+        description: "Failed to link Builder's Pass",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLinking(false);
+    }
   };
 
   if (isLinked) {
@@ -80,10 +116,10 @@ const BuilderPassLink = () => {
 
         <button
           onClick={handleLinkPass}
-          disabled={isLinking}
+          disabled={isLinking || !connected}
           className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-orange-700 hover:to-red-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isLinking ? 'Linking...' : 'Link Builder\'s Pass'}
+          {isLinking ? 'Linking...' : connected ? 'Link Builder\'s Pass' : 'Connect Wallet First'}
         </button>
 
         <p className="text-gray-400 text-sm">

@@ -138,6 +138,62 @@ export type Database = {
         }
         Relationships: []
       }
+      swaps: {
+        Row: {
+          amount: number
+          id: string
+          note: string | null
+          timestamp: string
+          token_from: string
+          token_to: string
+          wallet: string
+        }
+        Insert: {
+          amount: number
+          id?: string
+          note?: string | null
+          timestamp?: string
+          token_from: string
+          token_to: string
+          wallet: string
+        }
+        Update: {
+          amount?: number
+          id?: string
+          note?: string | null
+          timestamp?: string
+          token_from?: string
+          token_to?: string
+          wallet?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "swaps_wallet_fkey"
+            columns: ["wallet"]
+            isOneToOne: false
+            referencedRelation: "wallets"
+            referencedColumns: ["wallet"]
+          },
+        ]
+      }
+      wallets: {
+        Row: {
+          builder_pass: string | null
+          created_at: string
+          wallet: string
+        }
+        Insert: {
+          builder_pass?: string | null
+          created_at?: string
+          wallet: string
+        }
+        Update: {
+          builder_pass?: string | null
+          created_at?: string
+          wallet?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
