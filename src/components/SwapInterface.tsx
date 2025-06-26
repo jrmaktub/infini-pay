@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -64,11 +63,12 @@ const SwapInterface = () => {
   }, [isReady, fromToken, toToken]);
 
   // Show appropriate loading/error states
-  if (status === 'initializing' || status === 'retrying') {
+  const sdkStatus = status as RaydiumSDKStatus;
+  if (sdkStatus === 'initializing' || sdkStatus === 'retrying') {
     return <SwapLoadingSkeleton />;
   }
 
-  if (status === 'error' && error) {
+  if (sdkStatus === 'error' && error) {
     return (
       <SwapErrorFallback 
         error={error}
@@ -401,7 +401,8 @@ const SwapInterface = () => {
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
   const getStatusIcon = () => {
-    switch (status as RaydiumSDKStatus) {
+    const currentStatus = status as RaydiumSDKStatus;
+    switch (currentStatus) {
       case 'ready':
         return <CheckCircle className="text-green-400" size={16} />;
       case 'initializing':
@@ -413,7 +414,8 @@ const SwapInterface = () => {
   };
 
   const getStatusText = () => {
-    switch (status as RaydiumSDKStatus) {
+    const currentStatus = status as RaydiumSDKStatus;
+    switch (currentStatus) {
       case 'ready':
         return 'SDK Active';
       case 'initializing':
@@ -440,6 +442,8 @@ const SwapInterface = () => {
     }
   };
 
+  const currentStatus = status as RaydiumSDKStatus;
+
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
@@ -447,7 +451,7 @@ const SwapInterface = () => {
         Token Swap
         <div className="flex items-center gap-1">
           {getStatusIcon()}
-          <span className={`text-sm ${status === 'ready' ? 'text-green-400' : status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
+          <span className={`text-sm ${currentStatus === 'ready' ? 'text-green-400' : currentStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
             ({getStatusText()})
           </span>
         </div>
@@ -455,23 +459,23 @@ const SwapInterface = () => {
 
       {/* SDK Status Display */}
       <div className={`rounded-lg p-3 border mb-4 ${
-        status === 'ready' 
+        currentStatus === 'ready' 
           ? 'bg-green-500/20 border-green-500/30' 
-          : status === 'error'
+          : currentStatus === 'error'
           ? 'bg-red-500/20 border-red-500/30'
           : 'bg-yellow-500/20 border-yellow-500/30'
       }`}>
         <p className={`text-sm ${
-          status === 'ready' 
+          currentStatus === 'ready' 
             ? 'text-green-300' 
-            : status === 'error'
+            : currentStatus === 'error'
             ? 'text-red-300'
             : 'text-yellow-300'
         }`}>
-          {status === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
-          {status === 'initializing' && '🔄 Initializing Raydium SDK...'}
-          {status === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
-          {status === 'error' && '❌ SDK error - Swaps unavailable'}
+          {currentStatus === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
+          {currentStatus === 'initializing' && '🔄 Initializing Raydium SDK...'}
+          {currentStatus === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
+          {currentStatus === 'error' && '❌ SDK error - Swaps unavailable'}
         </p>
       </div>
 
@@ -500,6 +504,8 @@ const SwapInterface = () => {
           </p>
         </div>
       )}
+
+      {/* Simulation Results, Pool Info, Swap Pairs Display */}
 
       {/* Simulation Results */}
       {simulationResult && !simulationResult.error && (
@@ -651,18 +657,18 @@ const SwapInterface = () => {
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
+            {isLoadingPool ? 'Fetching pool information...' : currentStatus === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
           </p>
         </div>
 
         {/* Swap Button */}
         <button
           onClick={handleSwap}
-          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || status !== 'ready' || transactionStatus !== 'idle'}
+          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || currentStatus !== 'ready' || transactionStatus !== 'idle'}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
           aria-label={isSwapping ? 'Processing swap' : 'Execute swap'}
         >
-          {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : status !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
+          {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
         </button>
       </div>
     </div>
