@@ -3,13 +3,10 @@ import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-r
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { optimizedRaydiumService } from '@/utils/optimizedRaydiumService';
+import { raydiumSwapService } from '@/utils/raydiumSwap';
 import { useRaydiumSDK, type RaydiumSDKStatus } from '@/hooks/useRaydiumSDK';
-import { usePerformanceMonitor } from '@/hooks/usePerformanceMonitor';
-import { reportError, reportPerformanceIssue } from '@/utils/errorReporting';
 import SwapLoadingSkeleton from './SwapLoadingSkeleton';
 import SwapErrorFallback from './SwapErrorFallback';
-import PerformanceMonitor from './PerformanceMonitor';
 
 interface SwapPair {
   baseMint: string;
@@ -54,7 +51,6 @@ const SwapInterface = () => {
   const { insertSwap, balances } = useWalletData();
   const wallet = useWallet();
   const { status, error, isReady, retry, canRetry, retryCount } = useRaydiumSDK();
-  const { measurePerformance, trackMetric } = usePerformanceMonitor();
 
   // Fetch data when SDK becomes ready
   useEffect(() => {
@@ -88,10 +84,7 @@ const SwapInterface = () => {
     setIsLoadingPairs(true);
     
     try {
-      const pairs = await measurePerformance(
-        () => optimizedRaydiumService.getSwapPairs(),
-        'swapSimulationTime'
-      );
+      const pairs = await raydiumSwapService.getAvailableSwapPairs();
       console.log('SwapInterface - Successfully fetched swap pairs:', pairs);
       setSwapPairs(pairs);
       
@@ -101,8 +94,6 @@ const SwapInterface = () => {
       });
     } catch (error) {
       console.error('SwapInterface - Error fetching swap pairs:', error);
-      reportError(error instanceof Error ? error : new Error('Failed to fetch swap pairs'), 'swap_pairs_fetch');
-      
       toast({
         title: "Error Loading Swap Pairs",
         description: error instanceof Error ? error.message : "Failed to load swap pairs",
@@ -118,10 +109,7 @@ const SwapInterface = () => {
     setIsLoadingPool(true);
     
     try {
-      const info = await measurePerformance(
-        () => optimizedRaydiumService.getPoolInfo(fromToken, toToken),
-        'swapSimulationTime'
-      );
+      const info = await raydiumSwapService.getPoolInfo(fromToken, toToken);
       console.log('SwapInterface - Successfully fetched pool info:', info);
       setPoolInfo(info);
       
@@ -133,8 +121,6 @@ const SwapInterface = () => {
       }
     } catch (error) {
       console.error('SwapInterface - Error fetching pool info:', error);
-      reportError(error instanceof Error ? error : new Error('Failed to fetch pool info'), 'pool_info_fetch');
-      
       toast({
         title: "Error Loading Pool Info",
         description: error instanceof Error ? error.message : "Failed to load pool information",
@@ -155,36 +141,17 @@ const SwapInterface = () => {
     
     try {
       const amount = parseFloat(inputAmount);
-      const startTime = performance.now();
-      
-      const simulation = await measurePerformance(
-        () => optimizedRaydiumService.simulateSwap(fromToken, toToken, amount, isFromInput),
-        'swapSimulationTime'
+      const simulation = await raydiumSwapService.simulateSwap(
+        fromToken,
+        toToken,
+        amount,
+        isFromInput
       );
-      
-      const duration = performance.now() - startTime;
-      
-      // Report performance issues if simulation is too slow
-      if (duration > 2000) { // 2 seconds threshold
-        reportPerformanceIssue('swap_simulation_time', duration, 2000, {
-          fromToken,
-          toToken,
-          amount,
-          isFromInput
-        });
-      }
       
       console.log('SwapInterface - Simulation result:', simulation);
       setSimulationResult(simulation);
       
       if (simulation.error) {
-        reportError(new Error(simulation.error), 'swap_simulation_error', {
-          fromToken,
-          toToken,
-          amount,
-          isFromInput
-        });
-        
         toast({
           title: "Simulation Error",
           description: simulation.error,
@@ -199,8 +166,6 @@ const SwapInterface = () => {
       }
     } catch (error) {
       console.error('SwapInterface - Simulation failed:', error);
-      reportError(error instanceof Error ? error : new Error('Simulation failed'), 'swap_simulation_failure');
-      
       setSimulationResult({
         outputAmount: '0',
         priceImpact: 0,
@@ -295,9 +260,11 @@ const SwapInterface = () => {
       const swapAmount = parseFloat(fromAmount);
       
       // Perform final simulation before executing
-      const finalSimulation = await measurePerformance(
-        () => optimizedRaydiumService.simulateSwap(fromToken, toToken, swapAmount, true),
-        'swapSimulationTime'
+      const finalSimulation = await raydiumSwapService.simulateSwap(
+        fromToken,
+        toToken,
+        swapAmount,
+        true
       );
 
       if (finalSimulation.error) {
@@ -306,10 +273,10 @@ const SwapInterface = () => {
       
       console.log('Final simulation before swap:', finalSimulation);
       
-      // Execute the actual swap with performance monitoring
-      const result = await measurePerformance(
-        () => optimizedRaydiumService.swapIccToSol(wallet, swapAmount),
-        'swapExecutionTime'
+      // Execute the actual swap
+      const result = await raydiumSwapService.swapIccToSol(
+        wallet,
+        swapAmount
       );
       
       if (!result.success) {
@@ -348,12 +315,6 @@ const SwapInterface = () => {
       
     } catch (error) {
       console.error('Swap execution error:', error);
-      reportError(error instanceof Error ? error : new Error('Swap execution failed'), 'swap_execution_error', {
-        fromToken,
-        toToken,
-        amount: parseFloat(fromAmount)
-      });
-      
       setTransactionStatus('failed');
       
       let errorMessage = 'An unexpected error occurred';
@@ -484,236 +445,231 @@ const SwapInterface = () => {
   const currentStatus = status as RaydiumSDKStatus;
 
   return (
-    <div className="space-y-4">
-      {/* Performance Monitor */}
-      <PerformanceMonitor />
-      
-      <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
-        <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
-          <RefreshCw className="text-blue-400" size={24} />
-          Token Swap
-          <div className="flex items-center gap-1">
-            {getStatusIcon()}
-            <span className={`text-sm ${currentStatus === 'ready' ? 'text-green-400' : currentStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
-              ({getStatusText()})
-            </span>
-          </div>
-        </h2>
+    <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
+      <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+        <RefreshCw className="text-blue-400" size={24} />
+        Token Swap
+        <div className="flex items-center gap-1">
+          {getStatusIcon()}
+          <span className={`text-sm ${currentStatus === 'ready' ? 'text-green-400' : currentStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
+            ({getStatusText()})
+          </span>
+        </div>
+      </h2>
 
-        {/* SDK Status Display */}
-        <div className={`rounded-lg p-3 border mb-4 ${
+      {/* SDK Status Display */}
+      <div className={`rounded-lg p-3 border mb-4 ${
+        currentStatus === 'ready' 
+          ? 'bg-green-500/20 border-green-500/30' 
+          : currentStatus === 'error'
+          ? 'bg-red-500/20 border-red-500/30'
+          : 'bg-yellow-500/20 border-yellow-500/30'
+      }`}>
+        <p className={`text-sm ${
           currentStatus === 'ready' 
-            ? 'bg-green-500/20 border-green-500/30' 
+            ? 'text-green-300' 
             : currentStatus === 'error'
-            ? 'bg-red-500/20 border-red-500/30'
-            : 'bg-yellow-500/20 border-yellow-500/30'
+            ? 'text-red-300'
+            : 'text-yellow-300'
         }`}>
-          <p className={`text-sm ${
-            currentStatus === 'ready' 
+          {currentStatus === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
+          {currentStatus === 'initializing' && '🔄 Initializing Raydium SDK...'}
+          {currentStatus === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
+          {currentStatus === 'error' && '❌ SDK error - Swaps unavailable'}
+        </p>
+      </div>
+
+      {/* Transaction Status */}
+      {transactionStatus !== 'idle' && (
+        <div className={`rounded-lg p-3 border mb-4 ${
+          transactionStatus === 'confirmed' 
+            ? 'bg-green-500/20 border-green-500/30' 
+            : transactionStatus === 'failed'
+            ? 'bg-red-500/20 border-red-500/30'
+            : 'bg-blue-500/20 border-blue-500/30'
+        }`}>
+          <p className={`text-sm flex items-center gap-2 ${
+            transactionStatus === 'confirmed' 
               ? 'text-green-300' 
-              : currentStatus === 'error'
+              : transactionStatus === 'failed'
               ? 'text-red-300'
-              : 'text-yellow-300'
+              : 'text-blue-300'
           }`}>
-            {currentStatus === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
-            {currentStatus === 'initializing' && '🔄 Initializing Raydium SDK...'}
-            {currentStatus === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
-            {currentStatus === 'error' && '❌ SDK error - Swaps unavailable'}
+            {(transactionStatus === 'preparing' || transactionStatus === 'pending') && (
+              <Clock className="animate-spin" size={16} />
+            )}
+            {transactionStatus === 'confirmed' && <CheckCircle size={16} />}
+            {transactionStatus === 'failed' && <AlertCircle size={16} />}
+            {getTransactionStatusMessage()}
+          </p>
+        </div>
+      )}
+
+      {/* Simulation Results, Pool Info, Swap Pairs Display */}
+
+      {/* Simulation Results */}
+      {simulationResult && !simulationResult.error && (
+        <div className="bg-blue-500/20 rounded-xl p-4 mb-4 border border-blue-500/30">
+          <h3 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
+            Simulation Results
+            {isSimulating && <Clock className="text-blue-400 animate-spin" size={16} />}
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-300">Expected Output:</p>
+              <p className="text-white font-semibold">{simulationResult.outputAmount} {toToken}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Price Impact:</p>
+              <p className={`font-semibold ${simulationResult.priceImpact > 5 ? 'text-red-400' : 'text-green-400'}`}>
+                {simulationResult.priceImpact.toFixed(2)}%
+              </p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-gray-300">Minimum Received (1% slippage):</p>
+              <p className="text-white">{simulationResult.minimumReceived} {toToken}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {poolInfo && (
+        <div className="bg-white/10 rounded-xl p-4 mb-4">
+          <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+            Pool Information
+            {isLoadingPool && <Clock className="text-blue-400 animate-spin" size={16} />}
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-300">Pool ID:</p>
+              <p className="text-white font-mono text-xs">{poolInfo.poolId}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Current Price:</p>
+              <p className="text-white">{poolInfo.price.toFixed(8)} SOL/ICC</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Base Reserve:</p>
+              <p className="text-white">{poolInfo.baseReserve.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Quote Reserve:</p>
+              <p className="text-white">{poolInfo.quoteReserve.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {swapPairs.length > 0 && (
+        <div className="bg-white/10 rounded-xl p-4 mb-4">
+          <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+            Available Swap Pairs ({swapPairs.length})
+            {isLoadingPairs && <Clock className="text-blue-400 animate-spin" size={16} />}
+          </h3>
+          <div className="text-sm text-gray-300">
+            {swapPairs.slice(0, 3).map((pair, index) => (
+              <div key={index} className="flex justify-between">
+                <span>{pair.baseSymbol}/{pair.quoteSymbol}</span>
+                <span className="font-mono text-xs">{pair.poolId.slice(0, 8)}...</span>
+              </div>
+            ))}
+            {swapPairs.length > 3 && (
+              <p className="text-xs text-gray-400 mt-1">...and {swapPairs.length - 3} more</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {/* From Token */}
+        <div className="bg-white/10 rounded-xl p-4">
+          <label className="text-gray-300 text-sm block mb-2">From</label>
+          <div className="flex gap-3">
+            <select
+              value={fromToken}
+              onChange={(e) => setFromToken(e.target.value)}
+              className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
+              disabled
+            >
+              <option value="ICC">I₵C</option>
+            </select>
+            <input
+              type="number"
+              value={fromAmount}
+              onChange={(e) => handleAmountChange(e.target.value, true)}
+              placeholder="0.00"
+              max={maxBalance}
+              className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Available: {maxBalance.toLocaleString()} I₵C
           </p>
         </div>
 
-        {/* Transaction Status */}
-        {transactionStatus !== 'idle' && (
-          <div className={`rounded-lg p-3 border mb-4 ${
-            transactionStatus === 'confirmed' 
-              ? 'bg-green-500/20 border-green-500/30' 
-              : transactionStatus === 'failed'
-              ? 'bg-red-500/20 border-red-500/30'
-              : 'bg-blue-500/20 border-blue-500/30'
-          }`}>
-            <p className={`text-sm flex items-center gap-2 ${
-              transactionStatus === 'confirmed' 
-                ? 'text-green-300' 
-                : transactionStatus === 'failed'
-                ? 'text-red-300'
-                : 'text-blue-300'
-            }`}>
-              {(transactionStatus === 'preparing' || transactionStatus === 'pending') && (
-                <Clock className="animate-spin" size={16} />
-              )}
-              {transactionStatus === 'confirmed' && <CheckCircle size={16} />}
-              {transactionStatus === 'failed' && <AlertCircle size={16} />}
-              {getTransactionStatusMessage()}
-            </p>
-          </div>
-        )}
-
-        {/* Simulation Results, Pool Info, Swap Pairs Display */}
-
-        {/* Simulation Results */}
-        {simulationResult && !simulationResult.error && (
-          <div className="bg-blue-500/20 rounded-xl p-4 mb-4 border border-blue-500/30">
-            <h3 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
-              Simulation Results
-              {isSimulating && <Clock className="text-blue-400 animate-spin" size={16} />}
-            </h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-gray-300">Expected Output:</p>
-                <p className="text-white font-semibold">{simulationResult.outputAmount} {toToken}</p>
-              </div>
-              <div>
-                <p className="text-gray-300">Price Impact:</p>
-                <p className={`font-semibold ${simulationResult.priceImpact > 5 ? 'text-red-400' : 'text-green-400'}`}>
-                  {simulationResult.priceImpact.toFixed(2)}%
-                </p>
-              </div>
-              <div className="col-span-2">
-                <p className="text-gray-300">Minimum Received (1% slippage):</p>
-                <p className="text-white">{simulationResult.minimumReceived} {toToken}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {poolInfo && (
-          <div className="bg-white/10 rounded-xl p-4 mb-4">
-            <h3 className="text-white font-medium mb-2 flex items-center gap-2">
-              Pool Information
-              {isLoadingPool && <Clock className="text-blue-400 animate-spin" size={16} />}
-            </h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-gray-300">Pool ID:</p>
-                <p className="text-white font-mono text-xs">{poolInfo.poolId}</p>
-              </div>
-              <div>
-                <p className="text-gray-300">Current Price:</p>
-                <p className="text-white">{poolInfo.price.toFixed(8)} SOL/ICC</p>
-              </div>
-              <div>
-                <p className="text-gray-300">Base Reserve:</p>
-                <p className="text-white">{poolInfo.baseReserve.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-gray-300">Quote Reserve:</p>
-                <p className="text-white">{poolInfo.quoteReserve.toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {swapPairs.length > 0 && (
-          <div className="bg-white/10 rounded-xl p-4 mb-4">
-            <h3 className="text-white font-medium mb-2 flex items-center gap-2">
-              Available Swap Pairs ({swapPairs.length})
-              {isLoadingPairs && <Clock className="text-blue-400 animate-spin" size={16} />}
-            </h3>
-            <div className="text-sm text-gray-300">
-              {swapPairs.slice(0, 3).map((pair, index) => (
-                <div key={index} className="flex justify-between">
-                  <span>{pair.baseSymbol}/{pair.quoteSymbol}</span>
-                  <span className="font-mono text-xs">{pair.poolId.slice(0, 8)}...</span>
-                </div>
-              ))}
-              {swapPairs.length > 3 && (
-                <p className="text-xs text-gray-400 mt-1">...and {swapPairs.length - 3} more</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {/* From Token */}
-          <div className="bg-white/10 rounded-xl p-4">
-            <label className="text-gray-300 text-sm block mb-2">From</label>
-            <div className="flex gap-3">
-              <select
-                value={fromToken}
-                onChange={(e) => setFromToken(e.target.value)}
-                className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
-                disabled
-              >
-                <option value="ICC">I₵C</option>
-              </select>
-              <input
-                type="number"
-                value={fromAmount}
-                onChange={(e) => handleAmountChange(e.target.value, true)}
-                placeholder="0.00"
-                max={maxBalance}
-                className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
-              />
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Available: {maxBalance.toLocaleString()} I₵C
-            </p>
-          </div>
-
-          {/* Swap Arrow */}
-          <div className="flex justify-center">
-            <button
-              onClick={handleSwapTokens}
-              className="p-2 bg-white/20 rounded-full hover:bg-white/30 transition-all duration-300"
-              disabled
-            >
-              <ArrowRight className="text-white" size={20} />
-            </button>
-          </div>
-
-          {/* To Token */}
-          <div className="bg-white/10 rounded-xl p-4">
-            <label className="text-gray-300 text-sm block mb-2">To</label>
-            <div className="flex gap-3">
-              <select
-                value={toToken}
-                onChange={(e) => setToToken(e.target.value)}
-                className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
-                disabled
-              >
-                <option value="SOL">SOL</option>
-              </select>
-              <input
-                type="number"
-                value={toAmount}
-                onChange={(e) => handleAmountChange(e.target.value, false)}
-                placeholder="0.00"
-                className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
-                readOnly
-              />
-            </div>
-            {isSimulating && (
-              <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
-                <Clock className="animate-spin" size={12} />
-                Simulating swap...
-              </p>
-            )}
-          </div>
-
-          {/* Exchange Rate */}
-          <div className="text-center text-sm text-gray-300">
-            <p>
-              {poolInfo ? (
-                <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
-              ) : (
-                <>Loading pool data...</>
-              )}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">
-              {isLoadingPool ? 'Fetching pool information...' : currentStatus === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
-            </p>
-          </div>
-
-          {/* Swap Button */}
+        {/* Swap Arrow */}
+        <div className="flex justify-center">
           <button
-            onClick={handleSwap}
-            disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || currentStatus !== 'ready' || transactionStatus !== 'idle'}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
-            aria-label={isSwapping ? 'Processing swap' : 'Execute swap'}
+            onClick={handleSwapTokens}
+            className="p-2 bg-white/20 rounded-full hover:bg-white/30 transition-all duration-300"
+            disabled
           >
-            {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
+            <ArrowRight className="text-white" size={20} />
           </button>
         </div>
+
+        {/* To Token */}
+        <div className="bg-white/10 rounded-xl p-4">
+          <label className="text-gray-300 text-sm block mb-2">To</label>
+          <div className="flex gap-3">
+            <select
+              value={toToken}
+              onChange={(e) => setToToken(e.target.value)}
+              className="bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none"
+              disabled
+            >
+              <option value="SOL">SOL</option>
+            </select>
+            <input
+              type="number"
+              value={toAmount}
+              onChange={(e) => handleAmountChange(e.target.value, false)}
+              placeholder="0.00"
+              className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
+              readOnly
+            />
+          </div>
+          {isSimulating && (
+            <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
+              <Clock className="animate-spin" size={12} />
+              Simulating swap...
+            </p>
+          )}
+        </div>
+
+        {/* Exchange Rate */}
+        <div className="text-center text-sm text-gray-300">
+          <p>
+            {poolInfo ? (
+              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
+            ) : (
+              <>Loading pool data...</>
+            )}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            {isLoadingPool ? 'Fetching pool information...' : currentStatus === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
+          </p>
+        </div>
+
+        {/* Swap Button */}
+        <button
+          onClick={handleSwap}
+          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || currentStatus !== 'ready' || transactionStatus !== 'idle'}
+          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+          aria-label={isSwapping ? 'Processing swap' : 'Execute swap'}
+        >
+          {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
+        </button>
       </div>
     </div>
   );

@@ -2,8 +2,6 @@
 // Test comment to verify file saving functionality works
 import { useState, useEffect, useCallback } from 'react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
-import { usePerformanceMonitor } from './usePerformanceMonitor';
-import { reportError } from '@/utils/errorReporting';
 
 export type RaydiumSDKStatus = 'idle' | 'initializing' | 'ready' | 'error' | 'retrying';
 
@@ -27,8 +25,6 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
     retryCount: 0
   });
 
-  const { measurePerformance, trackMetric } = usePerformanceMonitor();
-
   const initialize = useCallback(async (isRetry = false) => {
     setState(prev => ({
       ...prev,
@@ -39,12 +35,7 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
 
     try {
       console.log('useRaydiumSDK - Starting initialization...');
-      
-      // Measure SDK initialization performance
-      const success = await measurePerformance(
-        () => raydiumSwapService.initialize(),
-        'sdkInitTime'
-      );
+      const success = await raydiumSwapService.initialize();
       
       if (success) {
         setState({
@@ -61,12 +52,6 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
       const errorMessage = error instanceof Error ? error.message : 'Unknown initialization error';
       console.error('useRaydiumSDK - Initialization failed:', error);
       
-      // Report error for monitoring
-      reportError(error instanceof Error ? error : new Error(errorMessage), 'raydium_sdk_initialization', {
-        isRetry,
-        retryCount: isRetry ? state.retryCount + 1 : 0
-      });
-      
       setState(prev => ({
         status: 'error' as RaydiumSDKStatus,
         error: errorMessage,
@@ -74,7 +59,7 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
         retryCount: prev.retryCount
       }));
     }
-  }, [measurePerformance]);
+  }, []);
 
   const retry = useCallback(() => {
     if (state.retryCount < 3) {
