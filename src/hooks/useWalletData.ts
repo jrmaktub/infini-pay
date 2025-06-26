@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+
+import { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
+import { rpcService } from '@/utils/rpcService';
 
 interface SwapRecord {
   id: string;
@@ -25,9 +27,6 @@ interface WalletBalances {
 const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
-// Use a more reliable RPC endpoint
-const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
-
 export const useWalletData = () => {
   const { publicKey, connected, wallet } = useWallet();
   const [swaps, setSwaps] = useState<SwapRecord[]>([]);
@@ -47,65 +46,37 @@ export const useWalletData = () => {
   });
 
   // Insert wallet on connection
-  const insertWallet = async (walletAddress: string) => {
+  const insertWallet = useCallback(async (walletAddress: string) => {
     try {
-      console.log('Inserting wallet:', walletAddress);
+      console.log('📝 Inserting wallet:', walletAddress);
       const { error } = await supabase
         .from('wallets')
         .insert([{ wallet: walletAddress }])
         .select();
       
       if (error && error.code !== '23505') { // Ignore duplicate key errors
-        console.error('Error inserting wallet:', error);
+        console.error('❌ Error inserting wallet:', error);
       } else {
-        console.log('Wallet inserted successfully');
+        console.log('✅ Wallet inserted successfully');
       }
     } catch (error) {
-      console.error('Error inserting wallet:', error);
+      console.error('❌ Error inserting wallet:', error);
     }
-  };
+  }, []);
 
-  // Test RPC connection
-  const testRPCConnection = async (): Promise<boolean> => {
-    try {
-      console.log('🔍 Testing RPC connection...');
-      const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
-      
-      // Test getting latest blockhash instead of getHealth()
-      const latestBlockhash = await connection.getLatestBlockhash();
-      console.log('✅ Latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
-      
-      return true;
-    } catch (error) {
-      console.error('❌ RPC Connection test failed:', error);
-      return false;
-    }
-  };
-
-  // Fetch REAL on-chain balances with improved error handling
-  const fetchRealBalances = async (): Promise<WalletBalances> => {
+  // Fetch REAL on-chain balances with robust error handling
+  const fetchRealBalances = useCallback(async (): Promise<WalletBalances> => {
     if (!publicKey) {
-      console.log('No public key available for balance fetch');
+      console.log('ℹ️ No public key available for balance fetch');
       return { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
     }
 
-    console.log('🔍 Fetching REAL on-chain balances for:', publicKey.toString());
+    console.log('🔍 Fetching REAL balances for:', publicKey.toString());
     
-    // Test RPC connection first
-    const rpcHealthy = await testRPCConnection();
-    if (!rpcHealthy) {
-      toast({
-        title: "RPC Connection Failed",
-        description: "Unable to connect to Solana network",
-        variant: "destructive"
-      });
-      return { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
-    }
-
-    const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
-    const balances: WalletBalances = { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
-
     try {
+      const connection = await rpcService.getConnection();
+      const balances: WalletBalances = { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
+
       // 1. Get SOL balance
       console.log('📡 Fetching SOL balance...');
       const solBalance = await connection.getBalance(publicKey);
@@ -116,13 +87,11 @@ export const useWalletData = () => {
       try {
         console.log('📡 Fetching ICC balance...');
         const iccTokenAccount = await getAssociatedTokenAddress(ICC_MINT, publicKey);
-        console.log('ICC Token Account:', iccTokenAccount.toString());
-        
         const iccAccount = await getAccount(connection, iccTokenAccount);
         balances.icc_balance = Number(iccAccount.amount) / Math.pow(10, 9); // Assuming 9 decimals
         console.log('✅ ICC Balance:', balances.icc_balance);
       } catch (error) {
-        console.log('ℹ️ ICC token account not found or empty:', error);
+        console.log('ℹ️ ICC token account not found or empty');
         balances.icc_balance = 0;
       }
 
@@ -130,13 +99,11 @@ export const useWalletData = () => {
       try {
         console.log('📡 Fetching USDC balance...');
         const usdcTokenAccount = await getAssociatedTokenAddress(USDC_MINT, publicKey);
-        console.log('USDC Token Account:', usdcTokenAccount.toString());
-        
         const usdcAccount = await getAccount(connection, usdcTokenAccount);
         balances.usdc_balance = Number(usdcAccount.amount) / Math.pow(10, 6); // USDC has 6 decimals
         console.log('✅ USDC Balance:', balances.usdc_balance);
       } catch (error) {
-        console.log('ℹ️ USDC token account not found or empty:', error);
+        console.log('ℹ️ USDC token account not found or empty');
         balances.usdc_balance = 0;
       }
 
@@ -147,17 +114,23 @@ export const useWalletData = () => {
       console.error('❌ Error fetching real balances:', error);
       toast({
         title: "Balance Fetch Error",
-        description: `Could not fetch balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        description: `Could not fetch balances from blockchain`,
         variant: "destructive"
       });
-      return balances;
+      return { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
     }
-  };
+  }, [publicKey, toast]);
 
   // Fetch wallet balances (now uses real on-chain data)
-  const fetchBalances = async () => {
+  const fetchBalances = useCallback(async () => {
     if (!publicKey || !connected) {
-      console.log('Cannot fetch balances - wallet not connected');
+      console.log('ℹ️ Cannot fetch balances - wallet not connected');
+      return;
+    }
+
+    // Prevent multiple simultaneous calls
+    if (loading) {
+      console.log('⏳ Balance fetch already in progress, skipping');
       return;
     }
 
@@ -172,65 +145,22 @@ export const useWalletData = () => {
       setBalances(realBalances);
       setLastBalanceCheck(Date.now());
       
-      // Also update database with real balances for consistency
-      const walletAddress = publicKey.toString();
-      await supabase
-        .from('wallets')
-        .upsert({
-          wallet: walletAddress,
-          icc_balance: realBalances.icc_balance,
-          usdc_balance: realBalances.usdc_balance
-        });
-
       console.log('✅ Balances updated successfully:', realBalances);
       
-      toast({
-        title: "Balances Updated",
-        description: "Real-time balances fetched from blockchain",
-      });
-
     } catch (error) {
       console.error('❌ Error in fetchBalances:', error);
       toast({
         title: "Error",
-        description: `Failed to fetch wallet balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        description: `Failed to fetch wallet balances`,
         variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, connected, loading, fetchRealBalances, toast]);
 
-  // Update wallet balances
-  const updateBalances = async (newBalances: WalletBalances) => {
-    if (!publicKey) return false;
-
-    try {
-      const walletAddress = publicKey.toString();
-      
-      const { error } = await supabase
-        .from('wallets')
-        .update({
-          icc_balance: newBalances.icc_balance,
-          usdc_balance: newBalances.usdc_balance
-        })
-        .eq('wallet', walletAddress);
-
-      if (error) {
-        console.error('Error updating balances:', error);
-        return false;
-      }
-
-      setBalances(newBalances);
-      return true;
-    } catch (error) {
-      console.error('Error updating balances:', error);
-      return false;
-    }
-  };
-
-  // Insert swap transaction with balance management
-  const insertSwap = async (
+  // Insert swap transaction
+  const insertSwap = useCallback(async (
     tokenFrom: string,
     tokenTo: string,
     amount: number,
@@ -242,7 +172,6 @@ export const useWalletData = () => {
       setLoading(true);
       const walletAddress = publicKey.toString();
       
-      // Insert swap record first
       const { error } = await supabase
         .from('swaps')
         .insert([{
@@ -254,7 +183,7 @@ export const useWalletData = () => {
         }]);
 
       if (error) {
-        console.error('Error inserting swap:', error);
+        console.error('❌ Error inserting swap:', error);
         toast({
           title: "Error",
           description: "Failed to record swap transaction",
@@ -263,28 +192,28 @@ export const useWalletData = () => {
         return false;
       }
 
-      // After successful swap, refresh balances from blockchain
-      console.log('🔄 Swap recorded, refreshing balances from blockchain...');
+      // After successful swap, refresh balances
+      console.log('🔄 Swap recorded, refreshing balances...');
       await fetchBalances();
       await fetchSwaps();
       
       return true;
     } catch (error) {
-      console.error('Error inserting swap:', error);
+      console.error('❌ Error inserting swap:', error);
       return false;
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, fetchBalances, toast]);
 
   // Fetch swaps for connected wallet
-  const fetchSwaps = async () => {
+  const fetchSwaps = useCallback(async () => {
     if (!publicKey) return;
 
     try {
       const walletAddress = publicKey.toString();
       
-      console.log('Fetching swaps for wallet:', walletAddress);
+      console.log('📋 Fetching swaps for wallet:', walletAddress);
       const { data, error } = await supabase
         .from('swaps')
         .select('*')
@@ -292,50 +221,41 @@ export const useWalletData = () => {
         .order('timestamp', { ascending: false });
 
       if (error) {
-        console.error('Error fetching swaps:', error);
+        console.error('❌ Error fetching swaps:', error);
         return;
       }
 
-      console.log('Swaps fetched:', data?.length || 0);
+      console.log('✅ Swaps fetched:', data?.length || 0);
       setSwaps(data || []);
     } catch (error) {
-      console.error('Error fetching swaps:', error);
+      console.error('❌ Error fetching swaps:', error);
     }
-  };
+  }, [publicKey]);
 
-  // Auto-refresh balances every 30 seconds when connected
+  // Handle wallet connection with debouncing
   useEffect(() => {
-    if (!connected || !publicKey) return;
-
-    const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing balances...');
-      fetchBalances();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, [connected, publicKey]);
-
-  // Handle wallet connection
-  useEffect(() => {
-    console.log('useWalletData effect triggered - connected:', connected, 'publicKey exists:', !!publicKey);
+    console.log('🔄 useWalletData effect triggered - connected:', connected, 'publicKey exists:', !!publicKey);
     
     if (connected && publicKey) {
       const walletAddress = publicKey.toString();
-      console.log('Wallet connected, initializing data for:', walletAddress);
-      insertWallet(walletAddress);
+      console.log('🔗 Wallet connected, initializing data for:', walletAddress);
       
-      // Small delay to ensure wallet is fully initialized
-      setTimeout(() => {
-        fetchBalances();
-        fetchSwaps();
-      }, 1000);
+      // Insert wallet and fetch data with small delay to ensure stability
+      const initializeWalletData = async () => {
+        await insertWallet(walletAddress);
+        await fetchBalances();
+        await fetchSwaps();
+      };
+      
+      const timeoutId = setTimeout(initializeWalletData, 1000);
+      return () => clearTimeout(timeoutId);
     } else {
-      console.log('Wallet not connected, resetting data');
+      console.log('🔌 Wallet disconnected, resetting data');
       setSwaps([]);
       setBalances({ icc_balance: 0, usdc_balance: 0, sol_balance: 0 });
       setLastBalanceCheck(0);
     }
-  }, [connected, publicKey]);
+  }, [connected, publicKey, insertWallet, fetchBalances, fetchSwaps]);
 
   return {
     swaps,

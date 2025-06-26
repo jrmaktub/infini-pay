@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
 
 export type RaydiumSDKStatus = 'idle' | 'initializing' | 'ready' | 'error' | 'retrying';
@@ -24,18 +24,29 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
     retryCount: 0
   });
 
+  // Use ref to prevent unnecessary re-initializations
+  const initializationRef = useRef<Promise<void> | null>(null);
+  const isInitializingRef = useRef(false);
+
   const initialize = useCallback(async (isRetry = false) => {
-    console.log('useRaydiumSDK - Starting initialization...', { isRetry });
+    // Prevent multiple simultaneous initializations
+    if (isInitializingRef.current) {
+      console.log('🔄 useRaydiumSDK - Initialization already in progress, skipping');
+      return;
+    }
+
+    isInitializingRef.current = true;
+    console.log('🔄 useRaydiumSDK - Starting initialization...', { isRetry });
     
     setState(prev => ({
       ...prev,
       status: (isRetry ? 'retrying' : 'initializing') as RaydiumSDKStatus,
       error: null,
-      retryCount: isRetry ? prev.retryCount + 1 : 0
+      retryCount: isRetry ? prev.retryCount + 1 : prev.retryCount
     }));
 
     try {
-      // Add a small delay to ensure polyfills are loaded
+      // Add delay to ensure polyfills are loaded
       await new Promise(resolve => setTimeout(resolve, 500));
       
       const success = await raydiumSwapService.initialize();
@@ -59,29 +70,33 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
         status: 'error' as RaydiumSDKStatus,
         error: errorMessage,
         isReady: false,
-        retryCount: prev.retryCount
+        retryCount: isRetry ? prev.retryCount + 1 : prev.retryCount
       }));
+    } finally {
+      isInitializingRef.current = false;
     }
   }, []);
 
   const retry = useCallback(() => {
-    if (state.retryCount < 3) {
+    if (state.retryCount < 3 && !isInitializingRef.current) {
       console.log('🔄 useRaydiumSDK - Retrying initialization...');
       initialize(true);
     }
   }, [initialize, state.retryCount]);
 
+  // Initialize only once on mount
   useEffect(() => {
-    console.log('useRaydiumSDK - Effect triggered, starting initialization');
-    initialize();
-  }, [initialize]);
+    if (!initializationRef.current && state.status === 'idle') {
+      console.log('🚀 useRaydiumSDK - Effect triggered, starting initial initialization');
+      initializationRef.current = initialize();
+    }
+  }, []); // Empty dependency array to run only once
 
   const result: UseRaydiumSDKReturn = {
     ...state,
     retry,
-    canRetry: state.retryCount < 3 && state.status === 'error'
+    canRetry: state.retryCount < 3 && state.status === 'error' && !isInitializingRef.current
   };
 
-  console.log('useRaydiumSDK - Current state:', result);
   return result;
 };

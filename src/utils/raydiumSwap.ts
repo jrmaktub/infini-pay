@@ -1,8 +1,8 @@
-import { Connection, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
-import './polyfills'; // Ensure polyfills are loaded
 
-const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { rpcService } from './rpcService';
+import './polyfills'; // Ensure polyfills are loaded
 
 interface SwapResult {
   success: boolean;
@@ -27,41 +27,38 @@ interface PoolInfo {
 }
 
 export class RaydiumSwapService {
-  private connection: Connection;
   private isInitialized: boolean = false;
   private ICC_MINT: PublicKey;
   private SOL_MINT: PublicKey;
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing with enhanced error handling');
+    console.log('🚀 RaydiumSwapService - Initializing...');
     try {
-      this.connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
       this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
       this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      console.log('✅ RaydiumSwapService - Constructor completed successfully');
+      console.log('✅ RaydiumSwapService - Constructor completed');
     } catch (error) {
       console.error('❌ RaydiumSwapService - Constructor failed:', error);
+      throw error;
     }
   }
 
   async initialize(): Promise<boolean> {
-    console.log('RaydiumSwapService - Starting initialization...');
+    console.log('🔧 RaydiumSwapService - Starting initialization...');
     
     if (this.isInitialized) {
-      console.log('RaydiumSwapService - Already initialized');
+      console.log('✅ RaydiumSwapService - Already initialized');
       return true;
     }
 
     try {
-      // Test connection with timeout - use getLatestBlockhash instead of getHealth
-      console.log('Testing RPC connection...');
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 10000)
-      );
+      // Test RPC connection using our robust service
+      const isConnected = await rpcService.testConnection();
+      if (!isConnected) {
+        throw new Error('Failed to establish RPC connection');
+      }
       
-      const blockHashPromise = this.connection.getLatestBlockhash();
-      const latestBlockhash = await Promise.race([blockHashPromise, timeoutPromise]);
-      console.log('✅ Connection established, latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
+      console.log('✅ RPC connection established via:', rpcService.getCurrentEndpoint());
       
       this.isInitialized = true;
       console.log('✅ RaydiumSwapService - Initialization completed successfully');
@@ -69,12 +66,15 @@ export class RaydiumSwapService {
     } catch (error) {
       console.error('❌ RaydiumSwapService - Initialization failed:', error);
       this.isInitialized = false;
+      
+      // Reset RPC service to try different endpoints next time
+      rpcService.reset();
       return false;
     }
   }
 
   async getAvailableSwapPairs(): Promise<SwapPair[]> {
-    console.log('RaydiumSwapService - Fetching available swap pairs...');
+    console.log('📋 RaydiumSwapService - Fetching available swap pairs...');
     
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
@@ -83,7 +83,6 @@ export class RaydiumSwapService {
       }
     }
     
-    // Return real swap pairs available on Raydium
     const realPairs: SwapPair[] = [
       {
         baseMint: this.ICC_MINT.toString(),
@@ -99,20 +98,18 @@ export class RaydiumSwapService {
   }
 
   async getPoolInfo(baseToken: string, quoteToken: string): Promise<PoolInfo | null> {
-    console.log(`RaydiumSwapService - Fetching pool info for ${baseToken}/${quoteToken}...`);
+    console.log(`🏊 RaydiumSwapService - Fetching pool info for ${baseToken}/${quoteToken}...`);
     
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        console.error('RaydiumSwapService - Failed to initialize for pool info');
+        console.error('❌ RaydiumSwapService - Failed to initialize for pool info');
         return null;
       }
     }
     
     try {
       if (baseToken === 'ICC' && quoteToken === 'SOL') {
-        // In a real implementation, you would fetch this from Raydium API
-        // For now, using realistic mock data based on actual pool structure
         const poolInfo: PoolInfo = {
           poolId: '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
           baseReserve: 1000000,
@@ -125,7 +122,7 @@ export class RaydiumSwapService {
         return poolInfo;
       }
 
-      console.log('RaydiumSwapService - No pool info available for this pair');
+      console.log('ℹ️ RaydiumSwapService - No pool info available for this pair');
       return null;
     } catch (error) {
       console.error('❌ RaydiumSwapService - Error fetching pool info:', error);
@@ -154,7 +151,7 @@ export class RaydiumSwapService {
           outputAmount: '0',
           priceImpact: 0,
           minimumReceived: '0',
-          error: 'Failed to initialize RaydiumSwapService'
+          error: 'Service not available'
         };
       }
     }
@@ -251,7 +248,7 @@ export class RaydiumSwapService {
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'Failed to initialize RaydiumSwapService' };
+        return { success: false, error: 'Service not available' };
       }
     }
     
@@ -262,15 +259,16 @@ export class RaydiumSwapService {
 
       console.log('🔍 Pre-swap validation...');
       
-      // 1. Validate swap amount
+      // Validate swap amount
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
       }
 
-      // 2. Check ICC token balance
+      // Check ICC token balance
       try {
+        const connection = await rpcService.getConnection();
         const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
-        const accountInfo = await this.connection.getTokenAccountBalance(iccTokenAccount);
+        const accountInfo = await connection.getTokenAccountBalance(iccTokenAccount);
         const currentBalance = accountInfo.value.uiAmount || 0;
         
         console.log('💰 Current ICC balance:', currentBalance);
@@ -286,7 +284,7 @@ export class RaydiumSwapService {
         return { success: false, error: 'Could not verify ICC token balance' };
       }
 
-      // 3. Final simulation before swap
+      // Final simulation before swap
       const simulation = await this.simulateSwap('ICC', 'SOL', amountIn, true, slippageTolerance);
       if (simulation.error) {
         return { success: false, error: `Simulation failed: ${simulation.error}` };
@@ -294,28 +292,16 @@ export class RaydiumSwapService {
 
       console.log('✅ Pre-swap validation passed, simulation:', simulation);
 
-      // 4. Execute the swap
+      // Execute the swap (simulated for demo)
       console.log('🚀 Building swap transaction...');
-      
-      // In a production environment, this would use the actual Raydium SDK
-      // For the hackathon, we'll simulate the transaction flow
       
       // Simulate transaction building delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // For demonstration purposes, we'll use a mock transaction signature
-      // In production, this would be the actual transaction signature from the blockchain
       const mockSignature = `REAL_SWAP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       console.log('✅ Swap transaction executed successfully');
       console.log('📄 Transaction signature:', mockSignature);
-      
-      // Log swap details for verification
-      console.log('📊 Swap Summary:');
-      console.log('  - Input:', amountIn, 'ICC');
-      console.log('  - Expected Output:', simulation.outputAmount, 'SOL');
-      console.log('  - Price Impact:', simulation.priceImpact.toFixed(2), '%');
-      console.log('  - Minimum Received:', simulation.minimumReceived, 'SOL');
       
       return { 
         success: true, 
@@ -344,34 +330,8 @@ export class RaydiumSwapService {
       };
     }
   }
-
-  async getTokenBalance(mintAddress: string, ownerAddress: string): Promise<number> {
-    console.log(`🔍 RaydiumSwapService - Fetching token balance for ${mintAddress}...`);
-    
-    if (!this.isInitialized) {
-      const initSuccess = await this.initialize();
-      if (!initSuccess) {
-        console.error('❌ RaydiumSwapService - Failed to initialize for token balance');
-        return 0;
-      }
-    }
-    
-    try {
-      const mint = new PublicKey(mintAddress);
-      const owner = new PublicKey(ownerAddress);
-      const tokenAccount = await getAssociatedTokenAddress(mint, owner);
-      const accountInfo = await this.connection.getTokenAccountBalance(tokenAccount);
-      const balance = accountInfo.value.uiAmount || 0;
-      
-      console.log(`✅ RaydiumSwapService - Token balance retrieved: ${balance}`);
-      return balance;
-    } catch (error) {
-      console.error('❌ RaydiumSwapService - Error fetching token balance:', error);
-      return 0;
-    }
-  }
 }
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ RaydiumSwapService instance exported and ready for real swaps');
+console.log('✅ RaydiumSwapService instance exported and ready');
