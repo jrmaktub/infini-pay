@@ -1,4 +1,3 @@
-
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { rpcService } from './rpcService';
@@ -52,19 +51,23 @@ export class RaydiumSwapService {
     }
 
     try {
-      // Test RPC connection using our robust service
+      // Test RPC connection using our robust service with Alchemy endpoint
+      console.log('🧪 Testing RPC connection for swap service...');
       const isConnected = await rpcService.testConnection();
       if (!isConnected) {
-        throw new Error('Failed to establish RPC connection');
+        throw new Error('Failed to establish RPC connection for swap service');
       }
       
-      console.log('✅ RPC connection established via:', rpcService.getCurrentEndpoint());
+      console.log('✅ RPC connection established for swaps via:', rpcService.getCurrentEndpoint());
       
       this.isInitialized = true;
       console.log('✅ RaydiumSwapService - Initialization completed successfully');
       return true;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Initialization failed:', error);
+      console.error('❌ RaydiumSwapService - Initialization failed:', {
+        error: error instanceof Error ? error.message : error,
+        rpcInfo: rpcService.getConnectionInfo()
+      });
       this.isInitialized = false;
       
       // Reset RPC service to try different endpoints next time
@@ -151,7 +154,7 @@ export class RaydiumSwapService {
           outputAmount: '0',
           priceImpact: 0,
           minimumReceived: '0',
-          error: 'Service not available'
+          error: 'Swap service not available - RPC connection failed'
         };
       }
     }
@@ -248,7 +251,7 @@ export class RaydiumSwapService {
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'Service not available' };
+        return { success: false, error: 'Swap service not available - RPC connection failed' };
       }
     }
     
@@ -257,21 +260,27 @@ export class RaydiumSwapService {
         return { success: false, error: 'Wallet not connected' };
       }
 
-      console.log('🔍 Pre-swap validation...');
+      console.log('🔍 Pre-swap validation with enhanced RPC...');
       
       // Validate swap amount
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
       }
 
-      // Check ICC token balance
+      // Check ICC token balance using our improved RPC service
       try {
         const connection = await rpcService.getConnection();
+        console.log('💰 Checking ICC balance via:', rpcService.getCurrentEndpoint());
+        
         const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
         const accountInfo = await connection.getTokenAccountBalance(iccTokenAccount);
         const currentBalance = accountInfo.value.uiAmount || 0;
         
-        console.log('💰 Current ICC balance:', currentBalance);
+        console.log('💰 Current ICC balance check:', {
+          balance: currentBalance,
+          required: amountIn,
+          rpcEndpoint: rpcService.getCurrentEndpoint()
+        });
         
         if (currentBalance < amountIn) {
           return { 
@@ -280,8 +289,11 @@ export class RaydiumSwapService {
           };
         }
       } catch (error) {
-        console.error('❌ Error checking ICC balance:', error);
-        return { success: false, error: 'Could not verify ICC token balance' };
+        console.error('❌ Error checking ICC balance via RPC:', {
+          error: error instanceof Error ? error.message : error,
+          rpcEndpoint: rpcService.getCurrentEndpoint()
+        });
+        return { success: false, error: 'Could not verify ICC token balance - RPC connection issue' };
       }
 
       // Final simulation before swap
@@ -290,7 +302,8 @@ export class RaydiumSwapService {
         return { success: false, error: `Simulation failed: ${simulation.error}` };
       }
 
-      console.log('✅ Pre-swap validation passed, simulation:', simulation);
+      console.log('✅ Pre-swap validation passed with RPC:', rpcService.getCurrentEndpoint());
+      console.log('📊 Simulation results:', simulation);
 
       // Execute the swap (simulated for demo)
       console.log('🚀 Building swap transaction...');
@@ -298,7 +311,7 @@ export class RaydiumSwapService {
       // Simulate transaction building delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const mockSignature = `REAL_SWAP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const mockSignature = `SWAP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       console.log('✅ Swap transaction executed successfully');
       console.log('📄 Transaction signature:', mockSignature);
@@ -309,7 +322,10 @@ export class RaydiumSwapService {
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Swap execution failed:', error);
+      console.error('❌ RaydiumSwapService - Swap execution failed:', {
+        error: error instanceof Error ? error.message : error,
+        rpcEndpoint: rpcService.getCurrentEndpoint()
+      });
       
       let errorMessage = 'Swap execution failed';
       if (error instanceof Error) {
@@ -334,4 +350,4 @@ export class RaydiumSwapService {
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ RaydiumSwapService instance exported and ready');
+console.log('✅ RaydiumSwapService instance exported and ready with enhanced RPC');

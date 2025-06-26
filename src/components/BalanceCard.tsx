@@ -1,7 +1,8 @@
 
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Coins, TrendingUp, RefreshCw } from 'lucide-react';
+import { Coins, TrendingUp, RefreshCw, AlertCircle } from 'lucide-react';
 import { useWalletData } from '@/hooks/useWalletData';
+import { rpcService } from '@/utils/rpcService';
 
 const BalanceCard = () => {
   const { connected } = useWallet();
@@ -18,6 +19,7 @@ const BalanceCard = () => {
   }
 
   const handleRefreshBalances = () => {
+    console.log('🔄 Manual balance refresh triggered');
     fetchBalances();
   };
 
@@ -31,6 +33,9 @@ const BalanceCard = () => {
     return `Updated ${Math.floor(diffSeconds / 3600)}h ago`;
   };
 
+  const rpcInfo = rpcService.getConnectionInfo();
+  const currentEndpoint = rpcService.getCurrentEndpoint();
+
   return (
     <div className="bg-gradient-to-br from-purple-600/20 to-blue-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <div className="flex items-center justify-between mb-6">
@@ -39,7 +44,11 @@ const BalanceCard = () => {
           Real-Time Balances
         </h2>
         <div className="flex items-center gap-2">
-          <TrendingUp className="text-green-400" size={20} />
+          {rpcInfo.isConnected ? (
+            <TrendingUp className="text-green-400" size={20} title="RPC Connected" />
+          ) : (
+            <AlertCircle className="text-red-400" size={20} title="RPC Not Connected" />
+          )}
           <button
             onClick={handleRefreshBalances}
             disabled={loading}
@@ -51,10 +60,17 @@ const BalanceCard = () => {
         </div>
       </div>
 
-      {/* Balance Update Status */}
-      <div className="mb-4 text-xs text-gray-400 flex items-center justify-between">
-        <span>🔗 Live blockchain data</span>
-        <span>{getLastUpdateText()}</span>
+      {/* Enhanced Status Information */}
+      <div className="mb-4 text-xs text-gray-400 space-y-1">
+        <div className="flex items-center justify-between">
+          <span>🔗 RPC Status: {rpcInfo.isConnected ? 'Connected' : 'Disconnected'}</span>
+          <span>{getLastUpdateText()}</span>
+        </div>
+        {currentEndpoint && (
+          <div className="text-xs text-gray-500 truncate" title={currentEndpoint}>
+            📡 Endpoint: {currentEndpoint.includes('alchemy') ? 'Alchemy (Primary)' : 'Backup RPC'}
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -113,10 +129,11 @@ const BalanceCard = () => {
         </div>
       </div>
 
-      {/* Debug Info */}
-      <div className="mt-4 text-xs text-gray-500 border-t border-white/10 pt-2">
-        <p>🔍 Debug: {loading ? 'Fetching...' : 'Balances loaded'}</p>
-        <p>📡 Source: Solana Mainnet RPC</p>
+      {/* Enhanced Debug Info */}
+      <div className="mt-4 text-xs text-gray-500 border-t border-white/10 pt-2 space-y-1">
+        <p>🔍 Status: {loading ? 'Fetching...' : 'Ready'}</p>
+        <p>📡 Network: Solana Mainnet</p>
+        <p>🔧 RPC: {rpcInfo.isConnected ? 'Active' : 'Connecting...'}</p>
       </div>
     </div>
   );
