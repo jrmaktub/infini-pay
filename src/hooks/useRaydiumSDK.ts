@@ -71,9 +71,11 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
     initialize();
   }, [initialize]);
 
-  return {
+  const result: UseRaydiumSDKReturn = {
     ...state,
     retry,
     canRetry: state.retryCount < 3 && state.status === 'error'
   };
+
+  return result;
 };
