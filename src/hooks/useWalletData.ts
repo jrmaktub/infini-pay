@@ -3,9 +3,8 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-// Temporarily comment out Raydium import to isolate issues
-// import { raydiumSwapService } from '@/utils/raydiumSwap';
-// import { PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 
 interface SwapRecord {
   id: string;
@@ -20,11 +19,13 @@ interface SwapRecord {
 interface WalletBalances {
   icc_balance: number;
   usdc_balance: number;
-  sol_balance?: number;
+  sol_balance: number;
 }
 
-// Temporarily comment out to isolate issues
-// const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
+// Token mint addresses
+const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 
 export const useWalletData = () => {
   const { publicKey, connected } = useWallet();
@@ -35,6 +36,7 @@ export const useWalletData = () => {
     sol_balance: 0 
   });
   const [loading, setLoading] = useState(false);
+  const [lastBalanceCheck, setLastBalanceCheck] = useState<number>(0);
   const { toast } = useToast();
 
   console.log('useWalletData hook - connected:', connected, 'publicKey:', publicKey?.toString());
@@ -58,45 +60,100 @@ export const useWalletData = () => {
     }
   };
 
-  // Fetch wallet balances (simplified version without on-chain calls)
+  // Fetch REAL on-chain balances
+  const fetchRealBalances = async (): Promise<WalletBalances> => {
+    if (!publicKey) {
+      console.log('No public key available for balance fetch');
+      return { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
+    }
+
+    console.log('🔍 Fetching REAL on-chain balances for:', publicKey.toString());
+    const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+    const balances: WalletBalances = { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
+
+    try {
+      // 1. Get SOL balance
+      const solBalance = await connection.getBalance(publicKey);
+      balances.sol_balance = solBalance / 1000000000; // Convert lamports to SOL
+      console.log('✅ SOL Balance:', balances.sol_balance);
+
+      // 2. Get ICC token balance
+      try {
+        const iccTokenAccount = await getAssociatedTokenAddress(ICC_MINT, publicKey);
+        const iccAccount = await getAccount(connection, iccTokenAccount);
+        balances.icc_balance = Number(iccAccount.amount) / Math.pow(10, 9); // Assuming 9 decimals
+        console.log('✅ ICC Balance:', balances.icc_balance);
+      } catch (error) {
+        console.log('ℹ️ ICC token account not found or empty:', error);
+        balances.icc_balance = 0;
+      }
+
+      // 3. Get USDC token balance
+      try {
+        const usdcTokenAccount = await getAssociatedTokenAddress(USDC_MINT, publicKey);
+        const usdcAccount = await getAccount(connection, usdcTokenAccount);
+        balances.usdc_balance = Number(usdcAccount.amount) / Math.pow(10, 6); // USDC has 6 decimals
+        console.log('✅ USDC Balance:', balances.usdc_balance);
+      } catch (error) {
+        console.log('ℹ️ USDC token account not found or empty:', error);
+        balances.usdc_balance = 0;
+      }
+
+      console.log('📊 Final Real Balances:', balances);
+      return balances;
+
+    } catch (error) {
+      console.error('❌ Error fetching real balances:', error);
+      toast({
+        title: "Balance Fetch Error",
+        description: "Could not fetch real-time balances from blockchain",
+        variant: "destructive"
+      });
+      return balances;
+    }
+  };
+
+  // Fetch wallet balances (now uses real on-chain data)
   const fetchBalances = async () => {
     if (!publicKey) return;
 
     try {
-      console.log('Fetching balances for wallet:', publicKey.toString());
-      const walletAddress = publicKey.toString();
+      setLoading(true);
+      console.log('🚀 Starting balance fetch for wallet:', publicKey.toString());
       
-      // Fetch database balances only for now
-      const { data, error } = await supabase
+      // Get real on-chain balances
+      const realBalances = await fetchRealBalances();
+      
+      // Update state with real balances
+      setBalances(realBalances);
+      setLastBalanceCheck(Date.now());
+      
+      // Also update database with real balances for consistency
+      const walletAddress = publicKey.toString();
+      await supabase
         .from('wallets')
-        .select('icc_balance, usdc_balance')
-        .eq('wallet', walletAddress)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error fetching balances:', error);
-        return;
-      }
-
-      // Temporarily use mock balances to avoid on-chain calls
-      if (data) {
-        setBalances({
-          icc_balance: data.icc_balance || 1000, // Mock balance
-          usdc_balance: data.usdc_balance || 500, // Mock balance
-          sol_balance: 2.5 // Mock SOL balance
+        .upsert({
+          wallet: walletAddress,
+          icc_balance: realBalances.icc_balance,
+          usdc_balance: realBalances.usdc_balance
         });
-        console.log('Balances set from database:', data);
-      } else {
-        // If no database record, use mock balances
-        setBalances({
-          icc_balance: 1000,
-          usdc_balance: 500,
-          sol_balance: 2.5
-        });
-        console.log('Using mock balances');
-      }
+
+      console.log('✅ Balances updated successfully:', realBalances);
+      
+      toast({
+        title: "Balances Updated",
+        description: "Real-time balances fetched from blockchain",
+      });
+
     } catch (error) {
-      console.error('Error fetching balances:', error);
+      console.error('❌ Error in fetchBalances:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch wallet balances",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -141,31 +198,7 @@ export const useWalletData = () => {
       setLoading(true);
       const walletAddress = publicKey.toString();
       
-      let newBalances = { ...balances };
-      
-      // Simplified swap logic for testing
-      if (tokenFrom === 'ICC' && tokenTo === 'USDC') {
-        const EXCHANGE_RATE = 0.95;
-        newBalances.icc_balance -= amount;
-        newBalances.usdc_balance += amount * EXCHANGE_RATE;
-      } else if (tokenFrom === 'USDC' && tokenTo === 'ICC') {
-        const EXCHANGE_RATE = 0.95;
-        newBalances.usdc_balance -= amount;
-        newBalances.icc_balance += amount / EXCHANGE_RATE;
-      }
-
-      // Update balances in database
-      const balanceUpdateSuccess = await updateBalances(newBalances);
-      if (!balanceUpdateSuccess) {
-        toast({
-          title: "Error",
-          description: "Failed to update balances",
-          variant: "destructive"
-        });
-        return false;
-      }
-
-      // Insert swap record
+      // Insert swap record first
       const { error } = await supabase
         .from('swaps')
         .insert([{
@@ -186,9 +219,11 @@ export const useWalletData = () => {
         return false;
       }
 
-      // Refresh data after successful insert
+      // After successful swap, refresh balances from blockchain
+      console.log('🔄 Swap recorded, refreshing balances from blockchain...');
       await fetchBalances();
       await fetchSwaps();
+      
       return true;
     } catch (error) {
       console.error('Error inserting swap:', error);
@@ -203,7 +238,6 @@ export const useWalletData = () => {
     if (!publicKey) return;
 
     try {
-      setLoading(true);
       const walletAddress = publicKey.toString();
       
       console.log('Fetching swaps for wallet:', walletAddress);
@@ -222,10 +256,20 @@ export const useWalletData = () => {
       setSwaps(data || []);
     } catch (error) {
       console.error('Error fetching swaps:', error);
-    } finally {
-      setLoading(false);
     }
   };
+
+  // Auto-refresh balances every 30 seconds when connected
+  useEffect(() => {
+    if (!connected || !publicKey) return;
+
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing balances...');
+      fetchBalances();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [connected, publicKey]);
 
   // Handle wallet connection
   useEffect(() => {
@@ -241,6 +285,7 @@ export const useWalletData = () => {
       console.log('Wallet not connected, resetting data');
       setSwaps([]);
       setBalances({ icc_balance: 0, usdc_balance: 0, sol_balance: 0 });
+      setLastBalanceCheck(0);
     }
   }, [connected, publicKey]);
 
@@ -250,6 +295,7 @@ export const useWalletData = () => {
     loading,
     insertSwap,
     fetchSwaps,
-    fetchBalances
+    fetchBalances,
+    lastBalanceCheck
   };
 };

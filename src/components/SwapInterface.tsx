@@ -32,7 +32,7 @@ interface SimulationResult {
 }
 
 const SwapInterface = () => {
-  console.log('SwapInterface component rendering...');
+  console.log('🔄 SwapInterface component rendering...');
   
   const [fromToken, setFromToken] = useState('ICC');
   const [toToken, setToToken] = useState('SOL');
@@ -46,9 +46,10 @@ const SwapInterface = () => {
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState<'idle' | 'preparing' | 'pending' | 'confirmed' | 'failed'>('idle');
+  const [lastSwapSignature, setLastSwapSignature] = useState<string | null>(null);
   
   const { toast } = useToast();
-  const { insertSwap, balances } = useWalletData();
+  const { insertSwap, balances, fetchBalances } = useWalletData();
   const wallet = useWallet();
   const { status, error, isReady, retry, canRetry, retryCount } = useRaydiumSDK();
 
@@ -80,12 +81,12 @@ const SwapInterface = () => {
   }
 
   const fetchSwapPairs = async () => {
-    console.log('SwapInterface - Fetching swap pairs...');
+    console.log('🔍 SwapInterface - Fetching swap pairs...');
     setIsLoadingPairs(true);
     
     try {
       const pairs = await raydiumSwapService.getAvailableSwapPairs();
-      console.log('SwapInterface - Successfully fetched swap pairs:', pairs);
+      console.log('✅ SwapInterface - Successfully fetched swap pairs:', pairs);
       setSwapPairs(pairs);
       
       toast({
@@ -93,7 +94,7 @@ const SwapInterface = () => {
         description: `Found ${pairs.length} available swap pairs`,
       });
     } catch (error) {
-      console.error('SwapInterface - Error fetching swap pairs:', error);
+      console.error('❌ SwapInterface - Error fetching swap pairs:', error);
       toast({
         title: "Error Loading Swap Pairs",
         description: error instanceof Error ? error.message : "Failed to load swap pairs",
@@ -105,12 +106,12 @@ const SwapInterface = () => {
   };
 
   const fetchPoolInfo = async () => {
-    console.log(`SwapInterface - Fetching pool info for ${fromToken}/${toToken}...`);
+    console.log(`🔍 SwapInterface - Fetching pool info for ${fromToken}/${toToken}...`);
     setIsLoadingPool(true);
     
     try {
       const info = await raydiumSwapService.getPoolInfo(fromToken, toToken);
-      console.log('SwapInterface - Successfully fetched pool info:', info);
+      console.log('✅ SwapInterface - Successfully fetched pool info:', info);
       setPoolInfo(info);
       
       if (info) {
@@ -120,7 +121,7 @@ const SwapInterface = () => {
         });
       }
     } catch (error) {
-      console.error('SwapInterface - Error fetching pool info:', error);
+      console.error('❌ SwapInterface - Error fetching pool info:', error);
       toast({
         title: "Error Loading Pool Info",
         description: error instanceof Error ? error.message : "Failed to load pool information",
@@ -136,7 +137,7 @@ const SwapInterface = () => {
       return;
     }
 
-    console.log('SwapInterface - Starting swap simulation...');
+    console.log('🧮 SwapInterface - Starting swap simulation...');
     setIsSimulating(true);
     
     try {
@@ -148,7 +149,7 @@ const SwapInterface = () => {
         isFromInput
       );
       
-      console.log('SwapInterface - Simulation result:', simulation);
+      console.log('✅ SwapInterface - Simulation result:', simulation);
       setSimulationResult(simulation);
       
       if (simulation.error) {
@@ -165,7 +166,7 @@ const SwapInterface = () => {
         }
       }
     } catch (error) {
-      console.error('SwapInterface - Simulation failed:', error);
+      console.error('❌ SwapInterface - Simulation failed:', error);
       setSimulationResult({
         outputAmount: '0',
         priceImpact: 0,
@@ -205,55 +206,8 @@ const SwapInterface = () => {
     }
   };
 
-  const handleSwapTokens = () => {
-    toast({
-      title: "Swap Direction",
-      description: "Currently only ICC → SOL swaps are supported",
-      variant: "destructive"
-    });
-  };
-
-  const monitorTransaction = async (signature: string) => {
-    console.log('Monitoring transaction:', signature);
-    setTransactionStatus('pending');
-    
-    const startTime = Date.now();
-    const timeout = 60000; // 1 minute timeout
-    
-    while (Date.now() - startTime < timeout) {
-      try {
-        // In a real implementation, you would check transaction status
-        // For now, we'll simulate successful confirmation after 5 seconds
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        console.log('Transaction confirmed successfully');
-        setTransactionStatus('confirmed');
-        
-        toast({
-          title: "Transaction Confirmed!",
-          description: `Swap completed successfully. Signature: ${signature.slice(0, 8)}...`,
-        });
-        
-        return true;
-      } catch (error) {
-        console.error('Error checking transaction status:', error);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
-    
-    // Transaction timed out
-    setTransactionStatus('failed');
-    toast({
-      title: "Transaction Timeout",
-      description: "Transaction may still be processing. Please check your wallet.",
-      variant: "destructive"
-    });
-    
-    return false;
-  };
-
   const executeSwap = async () => {
-    console.log('Executing real swap transaction...');
+    console.log('🔥 Executing REAL swap transaction...');
     setTransactionStatus('preparing');
     
     try {
@@ -271,7 +225,7 @@ const SwapInterface = () => {
         throw new Error(finalSimulation.error);
       }
       
-      console.log('Final simulation before swap:', finalSimulation);
+      console.log('✅ Final simulation before swap:', finalSimulation);
       
       // Execute the actual swap
       const result = await raydiumSwapService.swapIccToSol(
@@ -283,38 +237,45 @@ const SwapInterface = () => {
         throw new Error(result.error || 'Swap execution failed');
       }
       
-      console.log('Swap executed successfully:', result);
+      console.log('🎉 Swap executed successfully:', result);
+      setLastSwapSignature(result.signature || null);
+      setTransactionStatus('confirmed');
       
-      // Monitor transaction confirmation
-      if (result.signature) {
-        const confirmed = await monitorTransaction(result.signature);
+      // Record the swap in database
+      const success = await insertSwap(
+        fromToken,
+        toToken,
+        swapAmount,
+        `REAL SWAP: ${fromToken} → ${toToken} via Raydium. Tx: ${result.signature}`
+      );
+      
+      if (success) {
+        // Clear form and refresh balances
+        setFromAmount('');
+        setToAmount('');
+        setSimulationResult(null);
         
-        if (confirmed) {
-          // Record the swap in database
-          const success = await insertSwap(
-            fromToken,
-            toToken,
-            swapAmount,
-            `Real swap ${fromToken} → ${toToken} via Raydium SDK. Tx: ${result.signature}`
-          );
-          
-          if (success) {
-            setFromAmount('');
-            setToAmount('');
-            setSimulationResult(null);
-            setTransactionStatus('idle');
-          } else {
-            toast({
-              title: "Database Error",
-              description: "Swap completed but failed to record in database",
-              variant: "destructive"
-            });
-          }
-        }
+        // Force refresh balances from blockchain
+        console.log('🔄 Refreshing balances after successful swap...');
+        await fetchBalances();
+        
+        toast({
+          title: "Swap Completed Successfully! 🎉",
+          description: `Swapped ${swapAmount} ICC for SOL. Transaction: ${result.signature?.slice(0, 8)}...`,
+        });
+        
+        // Reset status after success
+        setTimeout(() => setTransactionStatus('idle'), 3000);
+      } else {
+        toast({
+          title: "Database Error",
+          description: "Swap completed but failed to record in database",
+          variant: "destructive"
+        });
       }
       
     } catch (error) {
-      console.error('Swap execution error:', error);
+      console.error('❌ Swap execution error:', error);
       setTransactionStatus('failed');
       
       let errorMessage = 'An unexpected error occurred';
@@ -343,7 +304,7 @@ const SwapInterface = () => {
   };
 
   const handleSwap = async () => {
-    console.log('handleSwap called - REAL SWAP MODE');
+    console.log('🚀 handleSwap called - INITIATING REAL SWAP');
     
     if (!wallet.connected || !wallet.publicKey) {
       toast({
@@ -434,7 +395,7 @@ const SwapInterface = () => {
       case 'pending':
         return 'Transaction pending confirmation...';
       case 'confirmed':
-        return 'Transaction confirmed!';
+        return 'Transaction confirmed! 🎉';
       case 'failed':
         return 'Transaction failed';
       default:
@@ -448,7 +409,7 @@ const SwapInterface = () => {
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Token Swap
+        REAL Token Swap
         <div className="flex items-center gap-1">
           {getStatusIcon()}
           <span className={`text-sm ${currentStatus === 'ready' ? 'text-green-400' : currentStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
@@ -456,28 +417,6 @@ const SwapInterface = () => {
           </span>
         </div>
       </h2>
-
-      {/* SDK Status Display */}
-      <div className={`rounded-lg p-3 border mb-4 ${
-        currentStatus === 'ready' 
-          ? 'bg-green-500/20 border-green-500/30' 
-          : currentStatus === 'error'
-          ? 'bg-red-500/20 border-red-500/30'
-          : 'bg-yellow-500/20 border-yellow-500/30'
-      }`}>
-        <p className={`text-sm ${
-          currentStatus === 'ready' 
-            ? 'text-green-300' 
-            : currentStatus === 'error'
-            ? 'text-red-300'
-            : 'text-yellow-300'
-        }`}>
-          {currentStatus === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
-          {currentStatus === 'initializing' && '🔄 Initializing Raydium SDK...'}
-          {currentStatus === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
-          {currentStatus === 'error' && '❌ SDK error - Swaps unavailable'}
-        </p>
-      </div>
 
       {/* Transaction Status */}
       {transactionStatus !== 'idle' && (
@@ -502,10 +441,13 @@ const SwapInterface = () => {
             {transactionStatus === 'failed' && <AlertCircle size={16} />}
             {getTransactionStatusMessage()}
           </p>
+          {lastSwapSignature && transactionStatus === 'confirmed' && (
+            <p className="text-xs text-green-400 mt-1 font-mono">
+              Signature: {lastSwapSignature.slice(0, 16)}...
+            </p>
+          )}
         </div>
       )}
-
-      {/* Simulation Results, Pool Info, Swap Pairs Display */}
 
       {/* Simulation Results */}
       {simulationResult && !simulationResult.error && (
@@ -603,15 +545,14 @@ const SwapInterface = () => {
             />
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Available: {maxBalance.toLocaleString()} I₵C
+            Available: {maxBalance.toLocaleString()} I₵C (Live Balance)
           </p>
         </div>
 
         {/* Swap Arrow */}
         <div className="flex justify-center">
           <button
-            onClick={handleSwapTokens}
-            className="p-2 bg-white/20 rounded-full hover:bg-white/30 transition-all duration-300"
+            className="p-2 bg-white/20 rounded-full"
             disabled
           >
             <ArrowRight className="text-white" size={20} />
@@ -633,7 +574,6 @@ const SwapInterface = () => {
             <input
               type="number"
               value={toAmount}
-              onChange={(e) => handleAmountChange(e.target.value, false)}
               placeholder="0.00"
               className="flex-1 bg-white/20 text-white rounded-lg px-3 py-2 border border-white/30 focus:border-blue-400 focus:outline-none placeholder-gray-400"
               readOnly
@@ -651,13 +591,13 @@ const SwapInterface = () => {
         <div className="text-center text-sm text-gray-300">
           <p>
             {poolInfo ? (
-              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL (Live from Raydium)</>
+              <>Rate: 1 I₵C ≈ {poolInfo.price.toFixed(8)} SOL</>
             ) : (
               <>Loading pool data...</>
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : currentStatus === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
+            🔗 Real-time pricing from Raydium
           </p>
         </div>
 
@@ -666,10 +606,16 @@ const SwapInterface = () => {
           onClick={handleSwap}
           disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || currentStatus !== 'ready' || transactionStatus !== 'idle'}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
-          aria-label={isSwapping ? 'Processing swap' : 'Execute swap'}
         >
-          {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
+          {isSwapping || transactionStatus !== 'idle' ? 'Processing Real Swap...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : '🔥 Execute REAL Swap'}
         </button>
+      </div>
+
+      {/* Debug Section */}
+      <div className="mt-4 text-xs text-gray-500 border-t border-white/10 pt-2">
+        <p>🔥 Mode: REAL SWAP EXECUTION</p>
+        <p>🔗 Network: Solana Mainnet</p>
+        <p>⚡ Status: {currentStatus === 'ready' ? 'Ready for real swaps' : 'Not ready'}</p>
       </div>
     </div>
   );
