@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -303,7 +302,6 @@ const SwapInterface = () => {
         </p>
       </div>
 
-      {/* Pool Information */}
       {poolInfo && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
           <h3 className="text-white font-medium mb-2 flex items-center gap-2">
@@ -331,7 +329,6 @@ const SwapInterface = () => {
         </div>
       )}
 
-      {/* Swap Pairs Information */}
       {swapPairs.length > 0 && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
           <h3 className="text-white font-medium mb-2 flex items-center gap-2">
@@ -352,7 +349,6 @@ const SwapInterface = () => {
         </div>
       )}
 
-      {/* Swap Form */}
       <div className="space-y-4">
         {/* From Token */}
         <div className="bg-white/10 rounded-xl p-4">
