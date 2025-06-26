@@ -1,4 +1,3 @@
-
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import './polyfills'; // Ensure polyfills are loaded
@@ -54,18 +53,14 @@ export class RaydiumSwapService {
     }
 
     try {
-      // Test connection with timeout
+      // Test connection with timeout - use getLatestBlockhash instead of getHealth
       console.log('Testing RPC connection...');
       const timeoutPromise = new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('Connection timeout')), 10000)
       );
       
-      const healthPromise = this.connection.getHealth();
-      const health = await Promise.race([healthPromise, timeoutPromise]);
-      console.log('✅ RPC Health check passed:', health);
-      
-      // Test getting latest blockhash
-      const latestBlockhash = await this.connection.getLatestBlockhash();
+      const blockHashPromise = this.connection.getLatestBlockhash();
+      const latestBlockhash = await Promise.race([blockHashPromise, timeoutPromise]);
       console.log('✅ Connection established, latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
       this.isInitialized = true;

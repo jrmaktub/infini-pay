@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -71,10 +70,8 @@ export const useWalletData = () => {
     try {
       console.log('🔍 Testing RPC connection...');
       const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
-      const health = await connection.getHealth();
-      console.log('✅ RPC Health:', health);
       
-      // Test getting latest blockhash
+      // Test getting latest blockhash instead of getHealth()
       const latestBlockhash = await connection.getLatestBlockhash();
       console.log('✅ Latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
