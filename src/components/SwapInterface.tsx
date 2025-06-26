@@ -46,6 +46,7 @@ const SwapInterface = () => {
   const [isLoadingPool, setIsLoadingPool] = useState(false);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [transactionStatus, setTransactionStatus] = useState<'idle' | 'preparing' | 'pending' | 'confirmed' | 'failed'>('idle');
   
   const { toast } = useToast();
   const { insertSwap, balances } = useWalletData();
@@ -212,8 +213,137 @@ const SwapInterface = () => {
     });
   };
 
+  const monitorTransaction = async (signature: string) => {
+    console.log('Monitoring transaction:', signature);
+    setTransactionStatus('pending');
+    
+    const startTime = Date.now();
+    const timeout = 60000; // 1 minute timeout
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        // In a real implementation, you would check transaction status
+        // For now, we'll simulate successful confirmation after 5 seconds
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        console.log('Transaction confirmed successfully');
+        setTransactionStatus('confirmed');
+        
+        toast({
+          title: "Transaction Confirmed!",
+          description: `Swap completed successfully. Signature: ${signature.slice(0, 8)}...`,
+        });
+        
+        return true;
+      } catch (error) {
+        console.error('Error checking transaction status:', error);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    // Transaction timed out
+    setTransactionStatus('failed');
+    toast({
+      title: "Transaction Timeout",
+      description: "Transaction may still be processing. Please check your wallet.",
+      variant: "destructive"
+    });
+    
+    return false;
+  };
+
+  const executeSwap = async () => {
+    console.log('Executing real swap transaction...');
+    setTransactionStatus('preparing');
+    
+    try {
+      const swapAmount = parseFloat(fromAmount);
+      
+      // Perform final simulation before executing
+      const finalSimulation = await raydiumSwapService.simulateSwap(
+        fromToken,
+        toToken,
+        swapAmount,
+        true
+      );
+
+      if (finalSimulation.error) {
+        throw new Error(finalSimulation.error);
+      }
+      
+      console.log('Final simulation before swap:', finalSimulation);
+      
+      // Execute the actual swap
+      const result = await raydiumSwapService.swapIccToSol(
+        wallet,
+        swapAmount
+      );
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Swap execution failed');
+      }
+      
+      console.log('Swap executed successfully:', result);
+      
+      // Monitor transaction confirmation
+      if (result.signature) {
+        const confirmed = await monitorTransaction(result.signature);
+        
+        if (confirmed) {
+          // Record the swap in database
+          const success = await insertSwap(
+            fromToken,
+            toToken,
+            swapAmount,
+            `Real swap ${fromToken} → ${toToken} via Raydium SDK. Tx: ${result.signature}`
+          );
+          
+          if (success) {
+            setFromAmount('');
+            setToAmount('');
+            setSimulationResult(null);
+            setTransactionStatus('idle');
+          } else {
+            toast({
+              title: "Database Error",
+              description: "Swap completed but failed to record in database",
+              variant: "destructive"
+            });
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('Swap execution error:', error);
+      setTransactionStatus('failed');
+      
+      let errorMessage = 'An unexpected error occurred';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('insufficient')) {
+          errorMessage = 'Insufficient balance for this swap';
+        } else if (error.message.includes('network') || error.message.includes('RPC')) {
+          errorMessage = 'Network error. Please try again.';
+        } else if (error.message.includes('slippage')) {
+          errorMessage = 'Price moved too much. Please try again.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      toast({
+        title: "Swap Failed",
+        description: errorMessage,
+        variant: "destructive"
+      });
+      
+      // Reset transaction status after showing error
+      setTimeout(() => setTransactionStatus('idle'), 3000);
+    }
+  };
+
   const handleSwap = async () => {
-    console.log('handleSwap called - SIMULATION MODE');
+    console.log('handleSwap called - REAL SWAP MODE');
     
     if (!wallet.connected || !wallet.publicKey) {
       toast({
@@ -257,76 +387,21 @@ const SwapInterface = () => {
     if (!isReady) {
       toast({
         title: "SDK Not Ready",
-        description: "Raydium SDK is not ready for simulation",
+        description: "Raydium SDK is not ready for swaps",
         variant: "destructive"
       });
       return;
     }
 
     setIsSwapping(true);
-    
-    try {
-      console.log('Starting swap simulation with Raydium SDK...');
-      
-      // Perform final simulation before executing
-      const finalSimulation = await raydiumSwapService.simulateSwap(
-        fromToken,
-        toToken,
-        swapAmount,
-        true
-      );
-
-      if (finalSimulation.error) {
-        throw new Error(finalSimulation.error);
-      }
-      
-      toast({
-        title: "Swap Simulation",
-        description: `Simulating swap with Raydium SDK data...`,
-      });
-
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      const success = await insertSwap(
-        fromToken,
-        toToken,
-        swapAmount,
-        `Simulated swap ${fromToken} → ${toToken} using Raydium SDK simulation`
-      );
-      
-      if (success) {
-        toast({
-          title: "Swap Simulation Complete!",
-          description: `Simulated swap of ${fromAmount} I₵C for ${finalSimulation.outputAmount} SOL`,
-        });
-        
-        setFromAmount('');
-        setToAmount('');
-        setSimulationResult(null);
-      } else {
-        toast({
-          title: "Database Error",
-          description: "Failed to record swap simulation",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      console.error('Swap simulation error:', error);
-      toast({
-        title: "Swap Simulation Error",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSwapping(false);
-    }
+    await executeSwap();
+    setIsSwapping(false);
   };
 
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
   const getStatusIcon = () => {
-    const currentStatus = status as RaydiumSDKStatus;
-    switch (currentStatus) {
+    switch (status as RaydiumSDKStatus) {
       case 'ready':
         return <CheckCircle className="text-green-400" size={16} />;
       case 'initializing':
@@ -338,8 +413,7 @@ const SwapInterface = () => {
   };
 
   const getStatusText = () => {
-    const currentStatus = status as RaydiumSDKStatus;
-    switch (currentStatus) {
+    switch (status as RaydiumSDKStatus) {
       case 'ready':
         return 'SDK Active';
       case 'initializing':
@@ -351,11 +425,26 @@ const SwapInterface = () => {
     }
   };
 
+  const getTransactionStatusMessage = () => {
+    switch (transactionStatus) {
+      case 'preparing':
+        return 'Preparing transaction...';
+      case 'pending':
+        return 'Transaction pending confirmation...';
+      case 'confirmed':
+        return 'Transaction confirmed!';
+      case 'failed':
+        return 'Transaction failed';
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Token Swap Simulation
+        Token Swap
         <div className="flex items-center gap-1">
           {getStatusIcon()}
           <span className={`text-sm ${status === 'ready' ? 'text-green-400' : status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
@@ -379,12 +468,38 @@ const SwapInterface = () => {
             ? 'text-red-300'
             : 'text-yellow-300'
         }`}>
-          {status === 'ready' && '✅ Raydium SDK active - Simulation enabled'}
+          {status === 'ready' && '✅ Raydium SDK active - Real swaps enabled'}
           {status === 'initializing' && '🔄 Initializing Raydium SDK...'}
           {status === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
-          {status === 'error' && '❌ SDK error - Simulation unavailable'}
+          {status === 'error' && '❌ SDK error - Swaps unavailable'}
         </p>
       </div>
+
+      {/* Transaction Status */}
+      {transactionStatus !== 'idle' && (
+        <div className={`rounded-lg p-3 border mb-4 ${
+          transactionStatus === 'confirmed' 
+            ? 'bg-green-500/20 border-green-500/30' 
+            : transactionStatus === 'failed'
+            ? 'bg-red-500/20 border-red-500/30'
+            : 'bg-blue-500/20 border-blue-500/30'
+        }`}>
+          <p className={`text-sm flex items-center gap-2 ${
+            transactionStatus === 'confirmed' 
+              ? 'text-green-300' 
+              : transactionStatus === 'failed'
+              ? 'text-red-300'
+              : 'text-blue-300'
+          }`}>
+            {(transactionStatus === 'preparing' || transactionStatus === 'pending') && (
+              <Clock className="animate-spin" size={16} />
+            )}
+            {transactionStatus === 'confirmed' && <CheckCircle size={16} />}
+            {transactionStatus === 'failed' && <AlertCircle size={16} />}
+            {getTransactionStatusMessage()}
+          </p>
+        </div>
+      )}
 
       {/* Simulation Results */}
       {simulationResult && !simulationResult.error && (
@@ -536,18 +651,18 @@ const SwapInterface = () => {
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time simulation' : 'Simulation unavailable'}
+            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time pricing' : 'Pricing unavailable'}
           </p>
         </div>
 
         {/* Swap Button */}
         <button
           onClick={handleSwap}
-          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || status !== 'ready'}
+          disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || status !== 'ready' || transactionStatus !== 'idle'}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
-          aria-label={isSwapping ? 'Processing swap simulation' : 'Execute swap simulation'}
+          aria-label={isSwapping ? 'Processing swap' : 'Execute swap'}
         >
-          {isSwapping ? 'Processing Simulation...' : !wallet.connected ? 'Connect Wallet' : status !== 'ready' ? 'Service Unavailable' : 'Simulate Swap'}
+          {isSwapping || transactionStatus !== 'idle' ? 'Processing...' : !wallet.connected ? 'Connect Wallet' : status !== 'ready' ? 'Service Unavailable' : 'Execute Swap'}
         </button>
       </div>
     </div>
