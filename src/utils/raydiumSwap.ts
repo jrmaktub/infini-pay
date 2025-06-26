@@ -1,6 +1,7 @@
 
-import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
-import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import './polyfills'; // Ensure polyfills are loaded
 
 const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 
@@ -33,10 +34,15 @@ export class RaydiumSwapService {
   private SOL_MINT: PublicKey;
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing with real blockchain connection');
-    this.connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
-    this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
-    this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+    console.log('🚀 RaydiumSwapService - Initializing with enhanced error handling');
+    try {
+      this.connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+      this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
+      this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+      console.log('✅ RaydiumSwapService - Constructor completed successfully');
+    } catch (error) {
+      console.error('❌ RaydiumSwapService - Constructor failed:', error);
+    }
   }
 
   async initialize(): Promise<boolean> {
@@ -48,7 +54,17 @@ export class RaydiumSwapService {
     }
 
     try {
-      // Test connection
+      // Test connection with timeout
+      console.log('Testing RPC connection...');
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 10000)
+      );
+      
+      const healthPromise = this.connection.getHealth();
+      const health = await Promise.race([healthPromise, timeoutPromise]);
+      console.log('✅ RPC Health check passed:', health);
+      
+      // Test getting latest blockhash
       const latestBlockhash = await this.connection.getLatestBlockhash();
       console.log('✅ Connection established, latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
@@ -57,6 +73,7 @@ export class RaydiumSwapService {
       return true;
     } catch (error) {
       console.error('❌ RaydiumSwapService - Initialization failed:', error);
+      this.isInitialized = false;
       return false;
     }
   }

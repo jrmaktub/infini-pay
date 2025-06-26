@@ -25,10 +25,12 @@ interface WalletBalances {
 // Token mint addresses
 const ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+// Use a more reliable RPC endpoint
 const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 
 export const useWalletData = () => {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, wallet } = useWallet();
   const [swaps, setSwaps] = useState<SwapRecord[]>([]);
   const [balances, setBalances] = useState<WalletBalances>({ 
     icc_balance: 0, 
@@ -39,7 +41,11 @@ export const useWalletData = () => {
   const [lastBalanceCheck, setLastBalanceCheck] = useState<number>(0);
   const { toast } = useToast();
 
-  console.log('useWalletData hook - connected:', connected, 'publicKey:', publicKey?.toString());
+  console.log('useWalletData - Wallet State:', {
+    connected,
+    publicKey: publicKey?.toString(),
+    walletName: wallet?.adapter?.name
+  });
 
   // Insert wallet on connection
   const insertWallet = async (walletAddress: string) => {
@@ -60,7 +66,26 @@ export const useWalletData = () => {
     }
   };
 
-  // Fetch REAL on-chain balances
+  // Test RPC connection
+  const testRPCConnection = async (): Promise<boolean> => {
+    try {
+      console.log('🔍 Testing RPC connection...');
+      const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+      const health = await connection.getHealth();
+      console.log('✅ RPC Health:', health);
+      
+      // Test getting latest blockhash
+      const latestBlockhash = await connection.getLatestBlockhash();
+      console.log('✅ Latest blockhash:', latestBlockhash.blockhash.slice(0, 8));
+      
+      return true;
+    } catch (error) {
+      console.error('❌ RPC Connection test failed:', error);
+      return false;
+    }
+  };
+
+  // Fetch REAL on-chain balances with improved error handling
   const fetchRealBalances = async (): Promise<WalletBalances> => {
     if (!publicKey) {
       console.log('No public key available for balance fetch');
@@ -68,18 +93,34 @@ export const useWalletData = () => {
     }
 
     console.log('🔍 Fetching REAL on-chain balances for:', publicKey.toString());
+    
+    // Test RPC connection first
+    const rpcHealthy = await testRPCConnection();
+    if (!rpcHealthy) {
+      toast({
+        title: "RPC Connection Failed",
+        description: "Unable to connect to Solana network",
+        variant: "destructive"
+      });
+      return { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
+    }
+
     const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
     const balances: WalletBalances = { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
 
     try {
       // 1. Get SOL balance
+      console.log('📡 Fetching SOL balance...');
       const solBalance = await connection.getBalance(publicKey);
       balances.sol_balance = solBalance / 1000000000; // Convert lamports to SOL
       console.log('✅ SOL Balance:', balances.sol_balance);
 
       // 2. Get ICC token balance
       try {
+        console.log('📡 Fetching ICC balance...');
         const iccTokenAccount = await getAssociatedTokenAddress(ICC_MINT, publicKey);
+        console.log('ICC Token Account:', iccTokenAccount.toString());
+        
         const iccAccount = await getAccount(connection, iccTokenAccount);
         balances.icc_balance = Number(iccAccount.amount) / Math.pow(10, 9); // Assuming 9 decimals
         console.log('✅ ICC Balance:', balances.icc_balance);
@@ -90,7 +131,10 @@ export const useWalletData = () => {
 
       // 3. Get USDC token balance
       try {
+        console.log('📡 Fetching USDC balance...');
         const usdcTokenAccount = await getAssociatedTokenAddress(USDC_MINT, publicKey);
+        console.log('USDC Token Account:', usdcTokenAccount.toString());
+        
         const usdcAccount = await getAccount(connection, usdcTokenAccount);
         balances.usdc_balance = Number(usdcAccount.amount) / Math.pow(10, 6); // USDC has 6 decimals
         console.log('✅ USDC Balance:', balances.usdc_balance);
@@ -106,7 +150,7 @@ export const useWalletData = () => {
       console.error('❌ Error fetching real balances:', error);
       toast({
         title: "Balance Fetch Error",
-        description: "Could not fetch real-time balances from blockchain",
+        description: `Could not fetch balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive"
       });
       return balances;
@@ -115,7 +159,10 @@ export const useWalletData = () => {
 
   // Fetch wallet balances (now uses real on-chain data)
   const fetchBalances = async () => {
-    if (!publicKey) return;
+    if (!publicKey || !connected) {
+      console.log('Cannot fetch balances - wallet not connected');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -149,7 +196,7 @@ export const useWalletData = () => {
       console.error('❌ Error in fetchBalances:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch wallet balances",
+        description: `Failed to fetch wallet balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive"
       });
     } finally {
@@ -279,8 +326,12 @@ export const useWalletData = () => {
       const walletAddress = publicKey.toString();
       console.log('Wallet connected, initializing data for:', walletAddress);
       insertWallet(walletAddress);
-      fetchBalances();
-      fetchSwaps();
+      
+      // Small delay to ensure wallet is fully initialized
+      setTimeout(() => {
+        fetchBalances();
+        fetchSwaps();
+      }, 1000);
     } else {
       console.log('Wallet not connected, resetting data');
       setSwaps([]);

@@ -1,5 +1,4 @@
 
-// Test comment to verify file saving functionality works
 import { useState, useEffect, useCallback } from 'react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
 
@@ -26,6 +25,8 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
   });
 
   const initialize = useCallback(async (isRetry = false) => {
+    console.log('useRaydiumSDK - Starting initialization...', { isRetry });
+    
     setState(prev => ({
       ...prev,
       status: (isRetry ? 'retrying' : 'initializing') as RaydiumSDKStatus,
@@ -34,7 +35,9 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
     }));
 
     try {
-      console.log('useRaydiumSDK - Starting initialization...');
+      // Add a small delay to ensure polyfills are loaded
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const success = await raydiumSwapService.initialize();
       
       if (success) {
@@ -44,13 +47,13 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
           isReady: true,
           retryCount: 0
         });
-        console.log('useRaydiumSDK - Initialization successful');
+        console.log('✅ useRaydiumSDK - Initialization successful');
       } else {
         throw new Error('SDK initialization returned false');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown initialization error';
-      console.error('useRaydiumSDK - Initialization failed:', error);
+      console.error('❌ useRaydiumSDK - Initialization failed:', error);
       
       setState(prev => ({
         status: 'error' as RaydiumSDKStatus,
@@ -63,11 +66,13 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
 
   const retry = useCallback(() => {
     if (state.retryCount < 3) {
+      console.log('🔄 useRaydiumSDK - Retrying initialization...');
       initialize(true);
     }
   }, [initialize, state.retryCount]);
 
   useEffect(() => {
+    console.log('useRaydiumSDK - Effect triggered, starting initialization');
     initialize();
   }, [initialize]);
 
@@ -77,5 +82,6 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
     canRetry: state.retryCount < 3 && state.status === 'error'
   };
 
+  console.log('useRaydiumSDK - Current state:', result);
   return result;
 };
