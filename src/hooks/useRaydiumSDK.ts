@@ -19,7 +19,7 @@ export interface UseRaydiumSDKReturn extends RaydiumSDKState {
 
 export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
   const [state, setState] = useState<RaydiumSDKState>({
-    status: 'idle',
+    status: 'idle' as RaydiumSDKStatus,
     error: null,
     isReady: false,
     retryCount: 0
@@ -28,7 +28,7 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
   const initialize = useCallback(async (isRetry = false) => {
     setState(prev => ({
       ...prev,
-      status: isRetry ? 'retrying' : 'initializing',
+      status: (isRetry ? 'retrying' : 'initializing') as RaydiumSDKStatus,
       error: null,
       retryCount: isRetry ? prev.retryCount + 1 : 0
     }));
@@ -39,7 +39,7 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
       
       if (success) {
         setState({
-          status: 'ready',
+          status: 'ready' as RaydiumSDKStatus,
           error: null,
           isReady: true,
           retryCount: 0
@@ -53,7 +53,7 @@ export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
       console.error('useRaydiumSDK - Initialization failed:', error);
       
       setState(prev => ({
-        status: 'error',
+        status: 'error' as RaydiumSDKStatus,
         error: errorMessage,
         isReady: false,
         retryCount: prev.retryCount
