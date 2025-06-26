@@ -158,7 +158,7 @@ const BuilderPassLink = () => {
         </button>
 
         <p className="text-gray-400 text-sm">
-          Link your Infinita Builder's Pass to verify your civic identity and unlock additional features.
+          Link your Builder's Pass to your wallet to verify civic identity and unlock additional features.
         </p>
       </div>
     </div>

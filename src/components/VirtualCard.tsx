@@ -64,9 +64,26 @@ const VirtualCard = () => {
               <p className="text-xs opacity-80">VALID THRU</p>
               <p className="font-mono">12/28</p>
             </div>
-            <div className="text-right">
-              <p className="text-xs opacity-80">BALANCE</p>
-              <p className="font-bold">$250.75</p>
+            <div className="flex items-center gap-4">
+              {/* QR Code Placeholder */}
+              <div className="w-16 h-16 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                <div className="w-12 h-12 bg-white/30 rounded grid grid-cols-3 gap-px p-1">
+                  {/* Simple QR code pattern */}
+                  <div className="bg-white/80 rounded-sm"></div>
+                  <div className="bg-transparent"></div>
+                  <div className="bg-white/80 rounded-sm"></div>
+                  <div className="bg-transparent"></div>
+                  <div className="bg-white/80 rounded-sm"></div>
+                  <div className="bg-transparent"></div>
+                  <div className="bg-white/80 rounded-sm"></div>
+                  <div className="bg-transparent"></div>
+                  <div className="bg-white/80 rounded-sm"></div>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs opacity-80">BALANCE</p>
+                <p className="font-bold">$250.75</p>
+              </div>
             </div>
           </div>
         </div>
