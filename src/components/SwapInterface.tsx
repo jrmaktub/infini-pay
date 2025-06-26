@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +25,13 @@ interface PoolInfo {
   volume24h?: number;
 }
 
+interface SimulationResult {
+  outputAmount: string;
+  priceImpact: number;
+  minimumReceived: string;
+  error?: string;
+}
+
 const SwapInterface = () => {
   console.log('SwapInterface component rendering...');
   
@@ -36,6 +44,8 @@ const SwapInterface = () => {
   const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
   const [isLoadingPairs, setIsLoadingPairs] = useState(false);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
+  const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
   
   const { toast } = useToast();
   const { insertSwap, balances } = useWalletData();
@@ -120,26 +130,76 @@ const SwapInterface = () => {
     }
   };
 
-  const handleAmountChange = (value: string, isFrom: boolean) => {
+  const simulateSwap = async (inputAmount: string, isFromInput: boolean) => {
+    if (!isReady || !poolInfo || !inputAmount || parseFloat(inputAmount) <= 0) {
+      return;
+    }
+
+    console.log('SwapInterface - Starting swap simulation...');
+    setIsSimulating(true);
+    
+    try {
+      const amount = parseFloat(inputAmount);
+      const simulation = await raydiumSwapService.simulateSwap(
+        fromToken,
+        toToken,
+        amount,
+        isFromInput
+      );
+      
+      console.log('SwapInterface - Simulation result:', simulation);
+      setSimulationResult(simulation);
+      
+      if (simulation.error) {
+        toast({
+          title: "Simulation Error",
+          description: simulation.error,
+          variant: "destructive"
+        });
+      } else {
+        if (isFromInput) {
+          setToAmount(simulation.outputAmount);
+        } else {
+          setFromAmount(simulation.outputAmount);
+        }
+      }
+    } catch (error) {
+      console.error('SwapInterface - Simulation failed:', error);
+      setSimulationResult({
+        outputAmount: '0',
+        priceImpact: 0,
+        minimumReceived: '0',
+        error: error instanceof Error ? error.message : 'Simulation failed'
+      });
+      
+      toast({
+        title: "Could not simulate swap",
+        description: "Please check inputs and try again",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleAmountChange = async (value: string, isFrom: boolean) => {
     const numValue = parseFloat(value) || 0;
     
     if (isFrom) {
       setFromAmount(value);
-      if (poolInfo && numValue > 0) {
-        const estimatedOutput = (numValue * poolInfo.price).toFixed(6);
-        setToAmount(estimatedOutput);
-        console.log(`SwapInterface - Calculated output: ${numValue} ${fromToken} → ${estimatedOutput} ${toToken}`);
+      if (isReady && numValue > 0) {
+        await simulateSwap(value, true);
       } else {
         setToAmount('');
+        setSimulationResult(null);
       }
     } else {
       setToAmount(value);
-      if (poolInfo && numValue > 0) {
-        const requiredInput = (numValue / poolInfo.price).toFixed(2);
-        setFromAmount(requiredInput);
-        console.log(`SwapInterface - Calculated input: ${requiredInput} ${fromToken} → ${numValue} ${toToken}`);
+      if (isReady && numValue > 0) {
+        await simulateSwap(value, false);
       } else {
         setFromAmount('');
+        setSimulationResult(null);
       }
     }
   };
@@ -153,7 +213,7 @@ const SwapInterface = () => {
   };
 
   const handleSwap = async () => {
-    console.log('handleSwap called - READ-ONLY MODE');
+    console.log('handleSwap called - SIMULATION MODE');
     
     if (!wallet.connected || !wallet.publicKey) {
       toast({
@@ -194,14 +254,35 @@ const SwapInterface = () => {
       return;
     }
 
+    if (!isReady) {
+      toast({
+        title: "SDK Not Ready",
+        description: "Raydium SDK is not ready for simulation",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsSwapping(true);
     
     try {
-      console.log('Starting swap simulation with Raydium SDK data...');
+      console.log('Starting swap simulation with Raydium SDK...');
+      
+      // Perform final simulation before executing
+      const finalSimulation = await raydiumSwapService.simulateSwap(
+        fromToken,
+        toToken,
+        swapAmount,
+        true
+      );
+
+      if (finalSimulation.error) {
+        throw new Error(finalSimulation.error);
+      }
       
       toast({
         title: "Swap Simulation",
-        description: "Simulating swap with real Raydium pool data...",
+        description: `Simulating swap with Raydium SDK data...`,
       });
 
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -210,17 +291,18 @@ const SwapInterface = () => {
         fromToken,
         toToken,
         swapAmount,
-        `Simulated swap ${fromToken} → ${toToken} using Raydium pool data`
+        `Simulated swap ${fromToken} → ${toToken} using Raydium SDK simulation`
       );
       
       if (success) {
         toast({
           title: "Swap Simulation Complete!",
-          description: `Simulated swap of ${fromAmount} I₵C for ${toAmount} SOL`,
+          description: `Simulated swap of ${fromAmount} I₵C for ${finalSimulation.outputAmount} SOL`,
         });
         
         setFromAmount('');
         setToAmount('');
+        setSimulationResult(null);
       } else {
         toast({
           title: "Database Error",
@@ -229,9 +311,9 @@ const SwapInterface = () => {
         });
       }
     } catch (error) {
-      console.error('Swap error:', error);
+      console.error('Swap simulation error:', error);
       toast({
-        title: "Swap Error",
+        title: "Swap Simulation Error",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive"
       });
@@ -243,7 +325,8 @@ const SwapInterface = () => {
   const maxBalance = fromToken === 'ICC' ? balances.icc_balance : 0;
 
   const getStatusIcon = () => {
-    switch (status) {
+    const currentStatus = status as RaydiumSDKStatus;
+    switch (currentStatus) {
       case 'ready':
         return <CheckCircle className="text-green-400" size={16} />;
       case 'initializing':
@@ -255,7 +338,8 @@ const SwapInterface = () => {
   };
 
   const getStatusText = () => {
-    switch (status) {
+    const currentStatus = status as RaydiumSDKStatus;
+    switch (currentStatus) {
       case 'ready':
         return 'SDK Active';
       case 'initializing':
@@ -271,7 +355,7 @@ const SwapInterface = () => {
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        Token Swap
+        Token Swap Simulation
         <div className="flex items-center gap-1">
           {getStatusIcon()}
           <span className={`text-sm ${status === 'ready' ? 'text-green-400' : status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
@@ -295,12 +379,38 @@ const SwapInterface = () => {
             ? 'text-red-300'
             : 'text-yellow-300'
         }`}>
-          {status === 'ready' && '✅ Raydium SDK successfully integrated and active'}
+          {status === 'ready' && '✅ Raydium SDK active - Simulation enabled'}
           {status === 'initializing' && '🔄 Initializing Raydium SDK...'}
           {status === 'retrying' && `🔄 Retrying SDK initialization (${retryCount}/3)...`}
-          {status === 'error' && '❌ SDK error - using fallback mode'}
+          {status === 'error' && '❌ SDK error - Simulation unavailable'}
         </p>
       </div>
+
+      {/* Simulation Results */}
+      {simulationResult && !simulationResult.error && (
+        <div className="bg-blue-500/20 rounded-xl p-4 mb-4 border border-blue-500/30">
+          <h3 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
+            Simulation Results
+            {isSimulating && <Clock className="text-blue-400 animate-spin" size={16} />}
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-300">Expected Output:</p>
+              <p className="text-white font-semibold">{simulationResult.outputAmount} {toToken}</p>
+            </div>
+            <div>
+              <p className="text-gray-300">Price Impact:</p>
+              <p className={`font-semibold ${simulationResult.priceImpact > 5 ? 'text-red-400' : 'text-green-400'}`}>
+                {simulationResult.priceImpact.toFixed(2)}%
+              </p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-gray-300">Minimum Received (1% slippage):</p>
+              <p className="text-white">{simulationResult.minimumReceived} {toToken}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {poolInfo && (
         <div className="bg-white/10 rounded-xl p-4 mb-4">
@@ -408,6 +518,12 @@ const SwapInterface = () => {
               readOnly
             />
           </div>
+          {isSimulating && (
+            <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
+              <Clock className="animate-spin" size={12} />
+              Simulating swap...
+            </p>
+          )}
         </div>
 
         {/* Exchange Rate */}
@@ -420,7 +536,7 @@ const SwapInterface = () => {
             )}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time data' : 'Fallback data'}
+            {isLoadingPool ? 'Fetching pool information...' : status === 'ready' ? 'Real-time simulation' : 'Simulation unavailable'}
           </p>
         </div>
 

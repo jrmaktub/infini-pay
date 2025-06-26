@@ -241,6 +241,132 @@ export class RaydiumSwapService {
     }
   }
 
+  async simulateSwap(
+    baseToken: string,
+    quoteToken: string,
+    inputAmount: number,
+    isFromBase: boolean,
+    slippageTolerance: number = 1
+  ): Promise<{
+    outputAmount: string;
+    priceImpact: number;
+    minimumReceived: string;
+    error?: string;
+  }> {
+    console.log(`RaydiumSwapService - Simulating swap: ${inputAmount} ${baseToken} → ${quoteToken}`);
+    
+    if (!this.isInitialized) {
+      const initSuccess = await this.initialize();
+      if (!initSuccess) {
+        return {
+          outputAmount: '0',
+          priceImpact: 0,
+          minimumReceived: '0',
+          error: 'Failed to initialize RaydiumSwapService'
+        };
+      }
+    }
+    
+    try {
+      // Validate inputs
+      if (inputAmount <= 0) {
+        return {
+          outputAmount: '0',
+          priceImpact: 0,
+          minimumReceived: '0',
+          error: 'Invalid input amount'
+        };
+      }
+
+      // Get pool information
+      const poolInfo = await this.getPoolInfo(baseToken, quoteToken);
+      if (!poolInfo) {
+        return {
+          outputAmount: '0',
+          priceImpact: 0,
+          minimumReceived: '0',
+          error: 'Pool information not available'
+        };
+      }
+
+      // Simulate the swap using AMM formula (x * y = k)
+      let outputAmount: number;
+      let priceImpact: number;
+
+      if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
+        // ICC → SOL swap
+        const k = poolInfo.baseReserve * poolInfo.quoteReserve;
+        const newBaseReserve = poolInfo.baseReserve + inputAmount;
+        const newQuoteReserve = k / newBaseReserve;
+        outputAmount = poolInfo.quoteReserve - newQuoteReserve;
+        
+        // Apply trading fees (0.25% for Raydium)
+        outputAmount = outputAmount * 0.9975;
+        
+        // Calculate price impact
+        const expectedOutput = inputAmount * poolInfo.price;
+        priceImpact = Math.abs((expectedOutput - outputAmount) / expectedOutput) * 100;
+        
+      } else if (baseToken === 'ICC' && quoteToken === 'SOL' && !isFromBase) {
+        // SOL → ICC swap (reverse calculation)
+        const k = poolInfo.baseReserve * poolInfo.quoteReserve;
+        const targetQuoteOutput = inputAmount;
+        const requiredQuoteInput = targetQuoteOutput / 0.9975; // Account for fees
+        const newQuoteReserve = poolInfo.quoteReserve - requiredQuoteInput;
+        const newBaseReserve = k / newQuoteReserve;
+        outputAmount = newBaseReserve - poolInfo.baseReserve;
+        
+        // Calculate price impact
+        const expectedInput = inputAmount / poolInfo.price;
+        priceImpact = Math.abs((outputAmount - expectedInput) / expectedInput) * 100;
+        
+      } else {
+        return {
+          outputAmount: '0',
+          priceImpact: 0,
+          minimumReceived: '0',
+          error: 'Unsupported token pair for simulation'
+        };
+      }
+
+      // Validate simulation results
+      if (outputAmount <= 0 || !isFinite(outputAmount)) {
+        return {
+          outputAmount: '0',
+          priceImpact: 0,
+          minimumReceived: '0',
+          error: 'Invalid simulation result - insufficient liquidity'
+        };
+      }
+
+      // Calculate minimum received with slippage
+      const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
+
+      // Warn about high price impact
+      if (priceImpact > 10) {
+        console.warn(`High price impact detected: ${priceImpact.toFixed(2)}%`);
+      }
+
+      const result = {
+        outputAmount: outputAmount.toFixed(8),
+        priceImpact: Math.min(priceImpact, 100), // Cap at 100%
+        minimumReceived: minimumReceived.toFixed(8)
+      };
+
+      console.log('RaydiumSwapService - Simulation successful:', result);
+      return result;
+
+    } catch (error) {
+      console.error('RaydiumSwapService - Simulation failed:', error);
+      return {
+        outputAmount: '0',
+        priceImpact: 0,
+        minimumReceived: '0',
+        error: error instanceof Error ? error.message : 'Simulation failed'
+      };
+    }
+  }
+
   async swapIccToSol(
     wallet: any,
     amountIn: number,
