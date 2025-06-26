@@ -12,7 +12,12 @@ export interface RaydiumSDKState {
   retryCount: number;
 }
 
-export const useRaydiumSDK = () => {
+export interface UseRaydiumSDKReturn extends RaydiumSDKState {
+  retry: () => void;
+  canRetry: boolean;
+}
+
+export const useRaydiumSDK = (): UseRaydiumSDKReturn => {
   const [state, setState] = useState<RaydiumSDKState>({
     status: 'idle',
     error: null,
