@@ -23,31 +23,28 @@ const Index = () => {
       console.log('Index component - Mounted successfully');
     } catch (err) {
       console.error('Index component - Error during mount:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Unknown error during mount');
     }
   }, []);
 
   console.log('Index component - Initializing wallet adapters...');
   
   let wallets;
+  let endpoint;
+  
   try {
     wallets = [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
     ];
     console.log('Index component - Wallet adapters created successfully:', wallets.length);
-  } catch (err) {
-    console.error('Index component - Error creating wallet adapters:', err);
-    setError('Failed to initialize wallet adapters');
-  }
-
-  let endpoint;
-  try {
+    
     endpoint = clusterApiUrl('mainnet-beta');
     console.log('Index component - Endpoint created:', endpoint);
   } catch (err) {
-    console.error('Index component - Error creating endpoint:', err);
-    setError('Failed to create RPC endpoint');
+    console.error('Index component - Error creating wallet configuration:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to initialize wallet configuration';
+    setError(errorMessage);
   }
 
   if (error) {
@@ -55,8 +52,17 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="bg-red-500/20 backdrop-blur-lg rounded-2xl p-8 border border-red-500/30 max-w-md mx-auto">
-          <h3 className="text-2xl font-semibold text-white mb-4">Error</h3>
-          <p className="text-red-300">{error}</p>
+          <h3 className="text-2xl font-semibold text-white mb-4">Initialization Error</h3>
+          <p className="text-red-300 mb-4">{error}</p>
+          <button
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
+            onClick={() => {
+              setError(null);
+              window.location.reload();
+            }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -66,13 +72,25 @@ const Index = () => {
     console.log('Index component - Not mounted yet, showing loading...');
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+        <div className="text-white text-xl">Loading InfiniPay...</div>
+      </div>
+    );
+  }
+
+  if (!wallets || !endpoint) {
+    console.error('Index component - Missing wallet configuration');
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="bg-red-500/20 backdrop-blur-lg rounded-2xl p-8 border border-red-500/30 max-w-md mx-auto">
+          <h3 className="text-2xl font-semibold text-white mb-4">Configuration Error</h3>
+          <p className="text-red-300">Wallet configuration is missing</p>
+        </div>
       </div>
     );
   }
 
   console.log('Index component - Rendering main app with:', { 
-    walletsCount: wallets?.length, 
+    walletsCount: wallets.length, 
     endpoint, 
     mounted 
   });
@@ -80,7 +98,7 @@ const Index = () => {
   try {
     return (
       <ConnectionProvider endpoint={endpoint}>
-        <WalletProvider wallets={wallets || []} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect>
           <WalletModalProvider>
             <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
               <div className="container mx-auto px-4 py-8">
@@ -103,16 +121,8 @@ const Index = () => {
     );
   } catch (renderError) {
     console.error('Index component - Error during render:', renderError);
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="bg-red-500/20 backdrop-blur-lg rounded-2xl p-8 border border-red-500/30 max-w-md mx-auto">
-          <h3 className="text-2xl font-semibold text-white mb-4">Render Error</h3>
-          <p className="text-red-300">
-            {renderError instanceof Error ? renderError.message : 'Unknown render error'}
-          </p>
-        </div>
-      </div>
-    );
+    setError(renderError instanceof Error ? renderError.message : 'Unknown render error');
+    return null;
   }
 };
 

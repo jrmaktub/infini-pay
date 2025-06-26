@@ -50,9 +50,15 @@ const Dashboard = () => {
       <div className="text-center py-12">
         <div className="bg-red-500/20 backdrop-blur-lg rounded-2xl p-8 border border-red-500/30 max-w-md mx-auto">
           <h3 className="text-2xl font-semibold text-white mb-4">Dashboard Error</h3>
-          <p className="text-red-300">
+          <p className="text-red-300 mb-4">
             {error instanceof Error ? error.message : 'Unknown dashboard error'}
           </p>
+          <button
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
         </div>
       </div>
     );
