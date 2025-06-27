@@ -219,6 +219,7 @@ export class RaydiumSwapService {
             mintA: pool.mintA,
             mintB: pool.mintB,
             price: pool.price,
+            liquidity: pool.liquidity,
             fullPool: pool
           });
         });
@@ -232,7 +233,8 @@ export class RaydiumSwapService {
             programId: pool.programId,
             mintA: pool.mintA,
             mintB: pool.mintB,
-            price: pool.price
+            price: pool.price,
+            liquidity: pool.liquidity
           });
         });
 
