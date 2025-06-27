@@ -1,3 +1,4 @@
+
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -26,15 +27,21 @@ interface PoolInfo {
   volume24h?: number;
 }
 
-// Type guard to check if a pool is a Standard pool (required for swaps)
+// Strict type guard to ensure we only work with Standard pools
 function isStandardPool(pool: any): pool is any {
   return pool && 
          pool.type === 'Standard' && 
          'marketId' in pool && 
+         typeof pool.marketId === 'string' &&
          'configId' in pool &&
+         typeof pool.configId === 'string' &&
          'lpPrice' in pool &&
+         typeof pool.lpPrice === 'number' &&
          'lpAmount' in pool &&
-         'lpMint' in pool;
+         typeof pool.lpAmount === 'number' &&
+         'lpMint' in pool &&
+         pool.lpMint &&
+         typeof pool.lpMint === 'object';
 }
 
 export class RaydiumSwapService {
@@ -120,8 +127,12 @@ export class RaydiumSwapService {
       // Handle the pools data correctly - it's an object with data property
       const poolsArray = poolsData.data || [];
       
-      if (poolsArray.length > 0) {
-        for (const pool of poolsArray) {
+      // Filter for Standard pools only
+      const standardPools = poolsArray.filter(isStandardPool);
+      console.log(`🔍 Found ${poolsArray.length} total pools, ${standardPools.length} Standard pools`);
+      
+      if (standardPools.length > 0) {
+        for (const pool of standardPools) {
           pairs.push({
             baseMint: pool.mintA.address,
             quoteMint: pool.mintB.address,
@@ -132,7 +143,7 @@ export class RaydiumSwapService {
         }
       }
 
-      console.log('✅ RaydiumSwapService - SDK v2 swap pairs found:', pairs.length);
+      console.log('✅ RaydiumSwapService - SDK v2 Standard swap pairs found:', pairs.length);
       return pairs;
     } catch (error) {
       console.error('❌ Error fetching pools with SDK v2:', error);
@@ -168,8 +179,11 @@ export class RaydiumSwapService {
 
         const poolsArray = poolsData.data || [];
         
-        if (poolsArray.length > 0) {
-          const pool = poolsArray[0];
+        // Filter for Standard pools only
+        const standardPools = poolsArray.filter(isStandardPool);
+        
+        if (standardPools.length > 0) {
+          const pool = standardPools[0];
           const poolInfo: PoolInfo = {
             poolId: pool.id,
             baseReserve: pool.mintAmountA,
@@ -178,12 +192,12 @@ export class RaydiumSwapService {
             volume24h: pool.day?.volume || 0
           };
 
-          console.log('✅ RaydiumSwapService - SDK v2 pool info fetched:', poolInfo);
+          console.log('✅ RaydiumSwapService - SDK v2 Standard pool info fetched:', poolInfo);
           return poolInfo;
         }
       }
 
-      console.log('ℹ️ RaydiumSwapService - No pool info available for this pair');
+      console.log('ℹ️ RaydiumSwapService - No Standard pool info available for this pair');
       return null;
     } catch (error) {
       console.error('❌ RaydiumSwapService - Error fetching pool info with SDK v2:', error);
@@ -229,16 +243,17 @@ export class RaydiumSwapService {
       }
 
       if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
-        // Get pool information for accurate simulation - convert PublicKey to string
+        // Get Standard pool information for accurate simulation
         const poolsData = await this.raydium!.api.fetchPoolByMints({
           mint1: this.ICC_MINT.toBase58(),
           mint2: this.SOL_MINT.toBase58(),
         });
 
         const poolsArray = poolsData.data || [];
+        const standardPools = poolsArray.filter(isStandardPool);
         
-        if (poolsArray.length > 0) {
-          const pool = poolsArray[0];
+        if (standardPools.length > 0) {
+          const pool = standardPools[0];
           const price = pool.price;
           const outputAmount = inputAmount * price;
           const priceImpact = Math.min((inputAmount / pool.mintAmountA) * 100, 15);
@@ -259,7 +274,7 @@ export class RaydiumSwapService {
         outputAmount: '0',
         priceImpact: 0,
         minimumReceived: '0',
-        error: 'Pool not found or unsupported swap pair'
+        error: 'No Standard pool found for this swap pair'
       };
 
     } catch (error) {
@@ -323,7 +338,7 @@ export class RaydiumSwapService {
         console.warn('⚠️ Could not check ICC balance, proceeding with swap attempt');
       }
 
-      // Get pool information - convert PublicKey to string
+      // Get pool information and ensure it's a Standard pool
       const poolsData = await this.raydium!.api.fetchPoolByMints({
         mint1: this.ICC_MINT.toBase58(),
         mint2: this.SOL_MINT.toBase58(),
@@ -335,14 +350,15 @@ export class RaydiumSwapService {
         return { success: false, error: 'No liquidity pool found for ICC/SOL' };
       }
 
-      // Find a Standard pool (required for swaps) and cast it properly
-      const standardPool = poolsArray.find(pool => isStandardPool(pool));
+      // Filter for Standard pools only
+      const standardPools = poolsArray.filter(isStandardPool);
       
-      if (!standardPool) {
+      if (standardPools.length === 0) {
         console.log('Available pool types:', poolsArray.map(p => `${p.type} (${p.id})`));
         return { success: false, error: 'No Standard pool found for ICC/SOL. Only Standard pools support swaps.' };
       }
       
+      const standardPool = standardPools[0];
       console.log('🏊 Using Standard pool:', standardPool.id, 'Type:', standardPool.type);
 
       // Execute REAL on-chain swap using SDK v2 with correct parameters
@@ -352,9 +368,9 @@ export class RaydiumSwapService {
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
-      // Use the correct parameter structure for SDK v2 swap - based on actual SwapParam type
+      // Use the correct parameter structure for SDK v2 swap with Standard pool
       const swapTransaction = await this.raydium!.liquidity.swap({
-        poolInfo: standardPool,
+        poolInfo: standardPool, // standardPool is guaranteed to be ApiV3PoolInfoStandardItem
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
