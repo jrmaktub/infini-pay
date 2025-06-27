@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { ArrowRight, RefreshCw, AlertCircle, CheckCircle, Clock, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { raydiumSwapService } from '@/utils/raydiumSwap';
+import { transactionVerifier } from '@/utils/transactionVerifier';
 import { useRaydiumSDK, type RaydiumSDKStatus } from '@/hooks/useRaydiumSDK';
 import SwapLoadingSkeleton from './SwapLoadingSkeleton';
 import SwapErrorFallback from './SwapErrorFallback';
@@ -32,7 +33,7 @@ interface SimulationResult {
 }
 
 const SwapInterface = () => {
-  console.log('🔄 SwapInterface component rendering...');
+  console.log('🔄 SwapInterface component rendering with REAL swap functionality...');
   
   const [fromToken, setFromToken] = useState('ICC');
   const [toToken, setToToken] = useState('SOL');
@@ -47,6 +48,7 @@ const SwapInterface = () => {
   const [isSimulating, setIsSimulating] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState<'idle' | 'preparing' | 'pending' | 'confirmed' | 'failed'>('idle');
   const [lastSwapSignature, setLastSwapSignature] = useState<string | null>(null);
+  const [isVerifyingTransaction, setIsVerifyingTransaction] = useState(false);
   
   const { toast } = useToast();
   const { insertSwap, balances, fetchBalances } = useWalletData();
@@ -206,8 +208,63 @@ const SwapInterface = () => {
     }
   };
 
+  const verifyTransactionOnChain = async (signature: string) => {
+    console.log('🔍 Verifying REAL transaction on blockchain:', signature);
+    setIsVerifyingTransaction(true);
+    
+    try {
+      // Check if this is a mock transaction
+      if (transactionVerifier.isMockTransaction(signature)) {
+        console.log('⚠️ Detected mock transaction signature:', signature);
+        toast({
+          title: "Mock Transaction Detected",
+          description: "This transaction was not executed on-chain",
+          variant: "destructive"
+        });
+        return false;
+      }
+      
+      const verificationResult = await transactionVerifier.verifyTransaction(signature);
+      
+      if (verificationResult.exists && verificationResult.confirmed) {
+        console.log('✅ Transaction confirmed on blockchain:', verificationResult);
+        toast({
+          title: "Transaction Verified ✅",
+          description: `Real on-chain transaction confirmed at slot ${verificationResult.slot}`,
+        });
+        return true;
+      } else if (verificationResult.exists && !verificationResult.confirmed) {
+        console.log('⏳ Transaction found but failed:', verificationResult);
+        toast({
+          title: "Transaction Failed",
+          description: `Transaction found but failed: ${verificationResult.error}`,
+          variant: "destructive"
+        });
+        return false;
+      } else {
+        console.log('❌ Transaction not found on blockchain:', verificationResult);
+        toast({
+          title: "Transaction Not Found",
+          description: "Transaction signature not found on Solana blockchain",
+          variant: "destructive"
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error verifying transaction:', error);
+      toast({
+        title: "Verification Error",
+        description: "Could not verify transaction on blockchain",
+        variant: "destructive"
+      });
+      return false;
+    } finally {
+      setIsVerifyingTransaction(false);
+    }
+  };
+
   const executeSwap = async () => {
-    console.log('🔥 Executing REAL swap transaction...');
+    console.log('🔥 Executing REAL on-chain swap transaction...');
     setTransactionStatus('preparing');
     
     try {
@@ -225,64 +282,79 @@ const SwapInterface = () => {
         throw new Error(finalSimulation.error);
       }
       
-      console.log('✅ Final simulation before swap:', finalSimulation);
+      console.log('✅ Final simulation before REAL swap:', finalSimulation);
+      setTransactionStatus('pending');
       
-      // Execute the actual swap
+      // Execute the REAL on-chain swap
       const result = await raydiumSwapService.swapIccToSol(
         wallet,
         swapAmount
       );
       
       if (!result.success) {
-        throw new Error(result.error || 'Swap execution failed');
+        throw new Error(result.error || 'Real swap execution failed');
       }
       
-      console.log('🎉 Swap executed successfully:', result);
+      console.log('🎉 REAL swap executed successfully:', result);
       setLastSwapSignature(result.signature || null);
-      setTransactionStatus('confirmed');
       
-      // Record the swap in database
-      const success = await insertSwap(
-        fromToken,
-        toToken,
-        swapAmount,
-        `REAL SWAP: ${fromToken} → ${toToken} via Raydium. Tx: ${result.signature}`
-      );
-      
-      if (success) {
-        // Clear form and refresh balances
-        setFromAmount('');
-        setToAmount('');
-        setSimulationResult(null);
+      // Verify the transaction on-chain
+      if (result.signature) {
+        const isVerified = await verifyTransactionOnChain(result.signature);
         
-        // Force refresh balances from blockchain
-        console.log('🔄 Refreshing balances after successful swap...');
-        await fetchBalances();
-        
-        toast({
-          title: "Swap Completed Successfully! 🎉",
-          description: `Swapped ${swapAmount} ICC for SOL. Transaction: ${result.signature?.slice(0, 8)}...`,
-        });
-        
-        // Reset status after success
-        setTimeout(() => setTransactionStatus('idle'), 3000);
+        if (isVerified) {
+          setTransactionStatus('confirmed');
+          
+          // Record the REAL swap in database
+          const success = await insertSwap(
+            fromToken,
+            toToken,
+            swapAmount,
+            `REAL ON-CHAIN SWAP: ${fromToken} → ${toToken} via Raydium. Verified Tx: ${result.signature}`
+          );
+          
+          if (success) {
+            // Clear form and refresh balances
+            setFromAmount('');
+            setToAmount('');
+            setSimulationResult(null);
+            
+            // Force refresh balances from blockchain
+            console.log('🔄 Refreshing balances after REAL swap...');
+            await fetchBalances();
+            
+            toast({
+              title: "REAL Swap Completed Successfully! 🎉",
+              description: `Real on-chain swap: ${swapAmount} ICC for SOL. Tx: ${result.signature?.slice(0, 8)}...`,
+            });
+            
+            // Reset status after success
+            setTimeout(() => setTransactionStatus('idle'), 5000);
+          } else {
+            toast({
+              title: "Database Error",
+              description: "Real swap completed but failed to record in database",
+              variant: "destructive"
+            });
+          }
+        } else {
+          setTransactionStatus('failed');
+        }
       } else {
-        toast({
-          title: "Database Error",
-          description: "Swap completed but failed to record in database",
-          variant: "destructive"
-        });
+        throw new Error('No transaction signature returned from swap');
       }
       
     } catch (error) {
-      console.error('❌ Swap execution error:', error);
+      console.error('❌ REAL swap execution error:', error);
       setTransactionStatus('failed');
       
-      let errorMessage = 'An unexpected error occurred';
+      let errorMessage = 'REAL swap execution failed';
       
       if (error instanceof Error) {
         if (error.message.includes('insufficient')) {
           errorMessage = 'Insufficient balance for this swap';
+        } else if (error.message.includes('User rejected')) {
+          errorMessage = 'Transaction was rejected by user';
         } else if (error.message.includes('network') || error.message.includes('RPC')) {
           errorMessage = 'Network error. Please try again.';
         } else if (error.message.includes('slippage')) {
@@ -293,7 +365,7 @@ const SwapInterface = () => {
       }
       
       toast({
-        title: "Swap Failed",
+        title: "REAL Swap Failed",
         description: errorMessage,
         variant: "destructive"
       });
@@ -304,12 +376,12 @@ const SwapInterface = () => {
   };
 
   const handleSwap = async () => {
-    console.log('🚀 handleSwap called - INITIATING REAL SWAP');
+    console.log('🚀 handleSwap called - INITIATING REAL ON-CHAIN SWAP');
     
     if (!wallet.connected || !wallet.publicKey) {
       toast({
         title: "Wallet Not Connected",
-        description: "Please connect your wallet to perform swaps",
+        description: "Please connect your wallet to perform REAL swaps",
         variant: "destructive"
       });
       return;
@@ -348,7 +420,7 @@ const SwapInterface = () => {
     if (!isReady) {
       toast({
         title: "SDK Not Ready",
-        description: "Raydium SDK is not ready for swaps",
+        description: "Raydium SDK is not ready for REAL swaps",
         variant: "destructive"
       });
       return;
@@ -391,13 +463,13 @@ const SwapInterface = () => {
   const getTransactionStatusMessage = () => {
     switch (transactionStatus) {
       case 'preparing':
-        return 'Preparing transaction...';
+        return 'Preparing REAL transaction...';
       case 'pending':
-        return 'Transaction pending confirmation...';
+        return 'REAL transaction pending confirmation...';
       case 'confirmed':
-        return 'Transaction confirmed! 🎉';
+        return 'REAL transaction confirmed on blockchain! 🎉';
       case 'failed':
-        return 'Transaction failed';
+        return 'REAL transaction failed';
       default:
         return null;
     }
@@ -409,7 +481,7 @@ const SwapInterface = () => {
     <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
       <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
         <RefreshCw className="text-blue-400" size={24} />
-        REAL Token Swap
+        REAL On-Chain Swap
         <div className="flex items-center gap-1">
           {getStatusIcon()}
           <span className={`text-sm ${currentStatus === 'ready' ? 'text-green-400' : currentStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
@@ -418,7 +490,7 @@ const SwapInterface = () => {
         </div>
       </h2>
 
-      {/* Transaction Status */}
+      {/* Transaction Status with Verification */}
       {transactionStatus !== 'idle' && (
         <div className={`rounded-lg p-3 border mb-4 ${
           transactionStatus === 'confirmed' 
@@ -440,11 +512,34 @@ const SwapInterface = () => {
             {transactionStatus === 'confirmed' && <CheckCircle size={16} />}
             {transactionStatus === 'failed' && <AlertCircle size={16} />}
             {getTransactionStatusMessage()}
+            {isVerifyingTransaction && (
+              <span className="text-xs text-blue-400">(Verifying on-chain...)</span>
+            )}
           </p>
           {lastSwapSignature && transactionStatus === 'confirmed' && (
-            <p className="text-xs text-green-400 mt-1 font-mono">
-              Signature: {lastSwapSignature.slice(0, 16)}...
-            </p>
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-green-400 font-mono">
+                Signature: {lastSwapSignature.slice(0, 32)}...
+              </p>
+              <div className="flex gap-2">
+                <a 
+                  href={transactionVerifier.getSolscanUrl(lastSwapSignature)}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                >
+                  View on Solscan <ExternalLink size={12} />
+                </a>
+                <a 
+                  href={transactionVerifier.getSolanaFmUrl(lastSwapSignature)}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                >
+                  View on Solana.fm <ExternalLink size={12} />
+                </a>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -607,15 +702,16 @@ const SwapInterface = () => {
           disabled={isSwapping || !fromAmount || parseFloat(fromAmount) > maxBalance || !wallet.connected || currentStatus !== 'ready' || transactionStatus !== 'idle'}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
         >
-          {isSwapping || transactionStatus !== 'idle' ? 'Processing Real Swap...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : '🔥 Execute REAL Swap'}
+          {isSwapping || transactionStatus !== 'idle' ? 'Processing REAL Swap...' : !wallet.connected ? 'Connect Wallet' : currentStatus !== 'ready' ? 'Service Unavailable' : '🔥 Execute REAL ON-CHAIN Swap'}
         </button>
       </div>
 
       {/* Debug Section */}
       <div className="mt-4 text-xs text-gray-500 border-t border-white/10 pt-2">
-        <p>🔥 Mode: REAL SWAP EXECUTION</p>
+        <p>🔥 Mode: REAL ON-CHAIN SWAP EXECUTION</p>
         <p>🔗 Network: Solana Mainnet</p>
-        <p>⚡ Status: {currentStatus === 'ready' ? 'Ready for real swaps' : 'Not ready'}</p>
+        <p>⚡ Status: {currentStatus === 'ready' ? 'Ready for REAL on-chain swaps' : 'Not ready'}</p>
+        <p>🔍 Verification: On-chain transaction verification enabled</p>
       </div>
     </div>
   );
