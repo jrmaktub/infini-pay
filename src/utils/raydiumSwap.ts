@@ -1,4 +1,3 @@
-
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -27,6 +26,14 @@ interface PoolInfo {
   volume24h?: number;
 }
 
+interface SwapAPIResponse {
+  success: boolean;
+  data?: {
+    swapTransactions: string[];
+  };
+  error?: string;
+}
+
 // Strict type guard to ensure we only work with Standard pools
 function isStandardPool(pool: any): pool is any {
   return pool && 
@@ -49,13 +56,14 @@ export class RaydiumSwapService {
   private isInitialized: boolean = false;
   private ICC_MINT: PublicKey;
   private SOL_MINT: PublicKey;
+  private readonly RAYDIUM_API_BASE = 'https://api-v3.raydium.io/v2';
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing with SDK v2...');
+    console.log('🚀 RaydiumSwapService - Initializing with API-driven approach...');
     try {
       this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
       this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      console.log('✅ RaydiumSwapService - Constructor ready');
+      console.log('✅ RaydiumSwapService - Constructor ready with API endpoints');
     } catch (error) {
       console.error('❌ RaydiumSwapService - Constructor failed:', error);
       throw error;
@@ -63,7 +71,7 @@ export class RaydiumSwapService {
   }
 
   async initialize(): Promise<boolean> {
-    console.log('🔧 RaydiumSwapService - Starting SDK v2 initialization...');
+    console.log('🔧 RaydiumSwapService - Starting API-driven initialization...');
     
     if (this.isInitialized && this.raydium) {
       console.log('✅ RaydiumSwapService - Already initialized');
@@ -74,27 +82,27 @@ export class RaydiumSwapService {
       const connection = await rpcService.getConnection();
       console.log('✅ RPC connection established:', rpcService.getCurrentEndpoint());
       
-      // Initialize Raydium SDK v2
-      console.log('🔄 Loading Raydium SDK v2...');
+      // Initialize Raydium SDK v2 for pool data fetching only
+      console.log('🔄 Loading Raydium SDK v2 for pool data...');
       this.raydium = await Raydium.load({
         connection,
-        cluster: 'mainnet', // Use mainnet for real swaps
+        cluster: 'mainnet',
         disableFeatureCheck: false,
         disableLoadToken: false,
         blockhashCommitment: 'finalized',
       });
       
-      console.log('✅ Raydium SDK v2 loaded successfully');
+      console.log('✅ Raydium SDK v2 loaded for pool data fetching');
       
       // Verify the connection works
       const latestBlockhash = await connection.getLatestBlockhash();
       console.log('✅ Connection verified with blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
-      console.log('✅ RaydiumSwapService initialized successfully with SDK v2');
+      console.log('✅ RaydiumSwapService initialized with API-driven approach');
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - SDK v2 initialization failed:', {
+      console.error('❌ RaydiumSwapService - API-driven initialization failed:', {
         error: error instanceof Error ? error.message : error,
         rpcInfo: rpcService.getConnectionInfo()
       });
@@ -293,12 +301,12 @@ export class RaydiumSwapService {
     amountIn: number,
     slippageTolerance: number = 1
   ): Promise<SwapResult> {
-    console.log('🔥 RaydiumSwapService - Executing REAL ON-CHAIN swap with SDK v2:', amountIn, 'ICC → SOL');
+    console.log('🔥 RaydiumSwapService - Executing REAL API-driven swap:', amountIn, 'ICC → SOL');
     
     if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'SDK v2 not available - initialization failed' };
+        return { success: false, error: 'API service not available - initialization failed' };
       }
     }
     
@@ -307,7 +315,7 @@ export class RaydiumSwapService {
         return { success: false, error: 'Wallet not connected or does not support signing' };
       }
 
-      console.log('🔍 Pre-swap validation with SDK v2...');
+      console.log('🔍 Pre-swap validation with API approach...');
       
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
@@ -338,85 +346,96 @@ export class RaydiumSwapService {
         console.warn('⚠️ Could not check ICC balance, proceeding with swap attempt');
       }
 
-      // Get pool information and ensure it's a Standard pool
-      const poolsData = await this.raydium!.api.fetchPoolByMints({
-        mint1: this.ICC_MINT.toBase58(),
-        mint2: this.SOL_MINT.toBase58(),
+      // Prepare API call payload following the demo pattern
+      const swapPayload = {
+        inputMint: this.ICC_MINT.toBase58(),
+        outputMint: this.SOL_MINT.toBase58(),
+        amount: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
+        slippageBps: slippageTolerance * 100, // Convert percentage to basis points
+        txVersion: 'V0' as const, // Use string format as expected by API
+        ownerPubkey: wallet.publicKey.toBase58()
+      };
+
+      console.log('📡 Making API call to Raydium swap endpoint:', swapPayload);
+
+      // Make the API call to Raydium's swap endpoint
+      const response = await fetch(`${this.RAYDIUM_API_BASE}/transaction/swap-base-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(swapPayload)
       });
 
-      const poolsArray = poolsData.data || [];
-      
-      if (poolsArray.length === 0) {
-        return { success: false, error: 'No liquidity pool found for ICC/SOL' };
+      if (!response.ok) {
+        throw new Error(`Raydium API error: ${response.status} ${response.statusText}`);
       }
 
-      // Filter for Standard pools only using the type guard
-      const standardPools = poolsArray.filter(isStandardPool);
+      const apiResult: SwapAPIResponse = await response.json();
       
-      if (standardPools.length === 0) {
-        console.log('Available pool types:', poolsArray.map(p => `${p.type} (${p.id})`));
-        return { success: false, error: 'No Standard pool found for ICC/SOL. Only Standard pools support swaps.' };
+      if (!apiResult.success || !apiResult.data?.swapTransactions) {
+        throw new Error(apiResult.error || 'API returned no swap transactions');
       }
-      
-      const standardPool = standardPools[0];
-      console.log('🏊 Using Standard pool:', standardPool.id, 'Type:', standardPool.type);
 
-      // Execute REAL on-chain swap using SDK v2
-      console.log('🚀 Executing REAL on-chain swap transaction...');
-      
-      // Get the associated token accounts
-      const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
-      const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
-      
-      // Use the SDK v2 swap method with the correct SwapParam structure for TxVersion.V0
-      // Based on actual SDK v2 type definitions, use minimal required parameters
-      const swapResult = await this.raydium!.liquidity.swap({
-        poolInfo: standardPool,
-        amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
-        amountOut: 0, // Will be calculated by the SDK
-        fixedSide: 'in', // We're specifying the input amount
-        txVersion: TxVersion.V0,
+      console.log('✅ Received swap transactions from API:', apiResult.data.swapTransactions.length);
+
+      // Deserialize and sign the transactions
+      const transactions: VersionedTransaction[] = apiResult.data.swapTransactions.map(txData => {
+        const txBuffer = Buffer.from(txData, 'base64');
+        return VersionedTransaction.deserialize(txBuffer);
       });
 
-      // The SDK returns a transaction that needs to be signed and sent
-      const swapTransaction = swapResult.transaction || swapResult;
-
-      // Sign and send the transaction
-      console.log('✍️ Signing transaction...');
-      const signedTx = await wallet.signTransaction(swapTransaction);
+      console.log('🔄 Signing transactions...');
+      const signedTransactions: VersionedTransaction[] = [];
       
-      console.log('📡 Sending REAL transaction to network...');
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      console.log('⏳ Confirming REAL transaction:', signature);
-      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-      
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      for (const tx of transactions) {
+        const signedTx = await wallet.signTransaction(tx);
+        signedTransactions.push(signedTx);
       }
 
-      console.log('🎉 REAL on-chain swap completed successfully:', {
-        signature,
-        amountIn,
-        pool: standardPool.id,
-        poolType: standardPool.type
+      console.log('📡 Sending REAL transactions to network...');
+      let finalSignature = '';
+      
+      // Send all transactions
+      for (let i = 0; i < signedTransactions.length; i++) {
+        const signedTx = signedTransactions[i];
+        
+        console.log(`📡 Sending transaction ${i + 1}/${signedTransactions.length}...`);
+        const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        console.log(`⏳ Confirming transaction ${i + 1}: ${signature}`);
+        const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+        
+        if (confirmation.value.err) {
+          throw new Error(`Transaction ${i + 1} failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        // Keep the last signature as the main one
+        finalSignature = signature;
+        console.log(`✅ Transaction ${i + 1} confirmed: ${signature}`);
+      }
+
+      console.log('🎉 REAL API-driven swap completed successfully:', {
+        finalSignature,
+        transactionCount: signedTransactions.length,
+        amountIn
       });
       
       return { 
         success: true, 
-        signature: signature
+        signature: finalSignature
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - REAL swap execution failed:', {
+      console.error('❌ RaydiumSwapService - API-driven swap execution failed:', {
         error: error instanceof Error ? error.message : error,
         rpcEndpoint: rpcService.getCurrentEndpoint()
       });
       
-      let errorMessage = 'Real swap execution failed';
+      let errorMessage = 'API-driven swap execution failed';
       if (error instanceof Error) {
         if (error.message.includes('User rejected')) {
           errorMessage = 'Transaction was rejected by user';
@@ -426,6 +445,8 @@ export class RaydiumSwapService {
           errorMessage = 'Network connection error - please try again';
         } else if (error.message.includes('slippage')) {
           errorMessage = 'Price moved too much during swap - try increasing slippage tolerance';
+        } else if (error.message.includes('API error')) {
+          errorMessage = 'Raydium API error - service may be temporarily unavailable';
         } else {
           errorMessage = error.message;
         }
@@ -441,4 +462,4 @@ export class RaydiumSwapService {
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ RaydiumSwapService instance exported with REAL SDK v2 functionality');
+console.log('✅ RaydiumSwapService instance exported with API-driven functionality');
