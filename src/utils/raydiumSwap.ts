@@ -1,6 +1,13 @@
 
-import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage } from '@solana/web3.js';
+import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
+import { 
+  Raydium, 
+  TxVersion, 
+  parseTokenAccountResp,
+  ApiV3PoolInfoStandardItem,
+  CacheLTA
+} from '@raydium-io/raydium-sdk-v2';
 import { rpcService } from './rpcService';
 import './polyfills';
 
@@ -26,39 +33,19 @@ interface PoolInfo {
   volume24h?: number;
 }
 
-interface JupiterQuoteResponse {
-  inputMint: string;
-  inAmount: string;
-  outputMint: string;
-  outAmount: string;
-  otherAmountThreshold: string;
-  swapMode: string;
-  slippageBps: number;
-  platformFee?: any;
-  priceImpactPct: string;
-  routePlan: any[];
-  contextSlot?: number;
-  timeTaken?: number;
-}
-
-interface JupiterSwapResponse {
-  swapTransaction: string;
-  lastValidBlockHeight: number;
-  prioritizationFeeLamports: number;
-}
-
 export class RaydiumSwapService {
   private isInitialized: boolean = false;
   private ICC_MINT: PublicKey;
   private SOL_MINT: PublicKey;
-  private JUPITER_API_URL = 'https://quote-api.jup.ag/v6';
+  private raydium: Raydium | null = null;
+  private poolInfo: ApiV3PoolInfoStandardItem | null = null;
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing for REAL on-chain swaps...');
+    console.log('🚀 RaydiumSwapService - Initializing for REAL Raydium SDK swaps...');
     try {
       this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
       this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      console.log('✅ RaydiumSwapService - Real swap service ready');
+      console.log('✅ RaydiumSwapService - Real Raydium SDK service ready');
     } catch (error) {
       console.error('❌ RaydiumSwapService - Constructor failed:', error);
       throw error;
@@ -66,30 +53,42 @@ export class RaydiumSwapService {
   }
 
   async initialize(): Promise<boolean> {
-    console.log('🔧 RaydiumSwapService - Starting REAL swap initialization...');
+    console.log('🔧 RaydiumSwapService - Starting REAL Raydium SDK initialization...');
     
     if (this.isInitialized) {
-      console.log('✅ RaydiumSwapService - Already initialized for real swaps');
+      console.log('✅ RaydiumSwapService - Already initialized for real Raydium swaps');
       return true;
     }
 
     try {
-      // Get RPC connection and test Jupiter API
       const connection = await rpcService.getConnection();
-      console.log('✅ RPC connection established for real swaps:', rpcService.getCurrentEndpoint());
+      console.log('✅ RPC connection established for Raydium SDK:', rpcService.getCurrentEndpoint());
       
-      // Test Jupiter API availability
-      const testResponse = await fetch(`${this.JUPITER_API_URL}/quote?inputMint=${this.ICC_MINT.toString()}&outputMint=${this.SOL_MINT.toString()}&amount=1000000000&slippageBps=50`);
-      if (!testResponse.ok) {
-        throw new Error('Jupiter API not available');
-      }
+      // Initialize Raydium SDK
+      console.log('🔧 Initializing Raydium SDK...');
+      this.raydium = Raydium.load({
+        connection,
+        cluster: 'mainnet', // or 'devnet'
+        disableLoadToken: false, // default is false
+        disableFeatureCheck: false, // default is false
+        blockhashCommitment: 'finalized', // default is finalized
+        // urlConfigs: {
+        //   BASE_HOST: '<API_HOST>', // api url configs, currently api doesn't support devnet
+        // },
+      });
       
-      console.log('✅ Jupiter API connection verified for real swaps');
-      console.log('✅ RaydiumSwapService initialized for REAL ON-CHAIN SWAPS');
+      await this.raydium.account.fetchComputeBudgetConfig();
+      console.log('✅ Raydium SDK initialized successfully');
+      
+      // Find ICC/SOL pool
+      console.log('🔍 Searching for ICC/SOL pool...');
+      await this.findICCSOLPool();
+      
+      console.log('✅ RaydiumSwapService initialized for REAL ON-CHAIN SWAPS via Raydium SDK');
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Real swap initialization failed:', {
+      console.error('❌ RaydiumSwapService - Real Raydium SDK initialization failed:', {
         error: error instanceof Error ? error.message : error,
         rpcInfo: rpcService.getConnectionInfo()
       });
@@ -99,8 +98,44 @@ export class RaydiumSwapService {
     }
   }
 
+  private async findICCSOLPool(): Promise<void> {
+    if (!this.raydium) {
+      throw new Error('Raydium SDK not initialized');
+    }
+
+    try {
+      console.log('🔍 Fetching pool information from Raydium API...');
+      
+      // Get all pools and find ICC/SOL pool
+      const data = await this.raydium.api.fetchPoolList();
+      
+      // Find pool with ICC and SOL
+      const iccSolPool = data.find((pool: ApiV3PoolInfoStandardItem) => {
+        const hasICC = pool.mintA.address === this.ICC_MINT.toString() || pool.mintB.address === this.ICC_MINT.toString();
+        const hasSOL = pool.mintA.address === this.SOL_MINT.toString() || pool.mintB.address === this.SOL_MINT.toString();
+        return hasICC && hasSOL;
+      });
+
+      if (iccSolPool) {
+        this.poolInfo = iccSolPool;
+        console.log('✅ Found ICC/SOL pool:', {
+          poolId: iccSolPool.id,
+          mintA: iccSolPool.mintA.address,
+          mintB: iccSolPool.mintB.address,
+          liquidity: iccSolPool.tvl
+        });
+      } else {
+        console.log('⚠️ No direct ICC/SOL pool found, will attempt to find multi-hop route');
+        // For now, we'll continue without a direct pool and handle routing later
+      }
+    } catch (error) {
+      console.error('❌ Error finding ICC/SOL pool:', error);
+      // Continue without pool info - we can still attempt swaps
+    }
+  }
+
   async getAvailableSwapPairs(): Promise<SwapPair[]> {
-    console.log('📋 RaydiumSwapService - Fetching real swap pairs...');
+    console.log('📋 RaydiumSwapService - Fetching real Raydium swap pairs...');
     
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
@@ -115,16 +150,16 @@ export class RaydiumSwapService {
         quoteMint: this.SOL_MINT.toString(),
         baseSymbol: 'ICC',
         quoteSymbol: 'SOL',
-        poolId: 'jupiter-aggregator'
+        poolId: this.poolInfo?.id || 'raydium-direct'
       }
     ];
 
-    console.log('✅ RaydiumSwapService - Real swap pairs available:', pairs.length);
+    console.log('✅ RaydiumSwapService - Real Raydium swap pairs available:', pairs.length);
     return pairs;
   }
 
   async getPoolInfo(baseToken: string, quoteToken: string): Promise<PoolInfo | null> {
-    console.log(`🏊 RaydiumSwapService - Fetching real pool info for ${baseToken}/${quoteToken}...`);
+    console.log(`🏊 RaydiumSwapService - Fetching real Raydium pool info for ${baseToken}/${quoteToken}...`);
     
     if (!this.isInitialized) {
       const initSuccess = await this.initialize();
@@ -135,25 +170,17 @@ export class RaydiumSwapService {
     }
     
     try {
-      if (baseToken === 'ICC' && quoteToken === 'SOL') {
-        // Get real-time price from Jupiter
-        const response = await fetch(`${this.JUPITER_API_URL}/quote?inputMint=${this.ICC_MINT.toString()}&outputMint=${this.SOL_MINT.toString()}&amount=1000000000&slippageBps=50`);
-        
-        if (response.ok) {
-          const quoteData: JupiterQuoteResponse = await response.json();
-          const price = Number(quoteData.outAmount) / Number(quoteData.inAmount);
-          
-          const poolInfo: PoolInfo = {
-            poolId: 'jupiter-aggregator',
-            baseReserve: 1000000,
-            quoteReserve: Math.floor(1000000 * price),
-            price: price,
-            volume24h: 0
-          };
+      if (baseToken === 'ICC' && quoteToken === 'SOL' && this.poolInfo) {
+        const poolInfo: PoolInfo = {
+          poolId: this.poolInfo.id,
+          baseReserve: Number(this.poolInfo.mintAmountA),
+          quoteReserve: Number(this.poolInfo.mintAmountB),
+          price: Number(this.poolInfo.price),
+          volume24h: Number(this.poolInfo.day?.volume || 0)
+        };
 
-          console.log('✅ RaydiumSwapService - Real pool info fetched:', poolInfo);
-          return poolInfo;
-        }
+        console.log('✅ RaydiumSwapService - Real Raydium pool info fetched:', poolInfo);
+        return poolInfo;
       }
 
       console.log('ℹ️ RaydiumSwapService - No real pool info available for this pair');
@@ -176,16 +203,16 @@ export class RaydiumSwapService {
     minimumReceived: string;
     error?: string;
   }> {
-    console.log(`🧮 RaydiumSwapService - Real swap simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
+    console.log(`🧮 RaydiumSwapService - Real Raydium swap simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
         return {
           outputAmount: '0',
           priceImpact: 0,
           minimumReceived: '0',
-          error: 'Real swap service not available - RPC connection failed'
+          error: 'Real Raydium swap service not available - SDK initialization failed'
         };
       }
     }
@@ -202,29 +229,39 @@ export class RaydiumSwapService {
       }
 
       if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
-        // Get real quote from Jupiter API
+        // Use Raydium SDK to compute swap amounts
+        const inputMint = this.ICC_MINT;
+        const outputMint = this.SOL_MINT;
         const amountInSmallestUnit = Math.floor(inputAmount * Math.pow(10, 9)); // ICC has 9 decimals
-        const slippageBps = Math.floor(slippageTolerance * 100); // Convert to basis points
         
-        const response = await fetch(`${this.JUPITER_API_URL}/quote?inputMint=${this.ICC_MINT.toString()}&outputMint=${this.SOL_MINT.toString()}&amount=${amountInSmallestUnit}&slippageBps=${slippageBps}`);
+        console.log('🔄 Computing swap with Raydium SDK...');
         
-        if (!response.ok) {
-          throw new Error('Failed to get real quote from Jupiter');
+        // Get swap route and compute output
+        const swapRes = await this.raydium!.liquidity.computeAmountOut({
+          poolInfo: this.poolInfo!,
+          amountIn: amountInSmallestUnit,
+          mintIn: inputMint,
+          mintOut: outputMint,
+          slippage: slippageTolerance / 100, // Convert to decimal
+        });
+
+        if (swapRes.isErr) {
+          throw new Error(`Swap computation failed: ${swapRes.val}`);
         }
+
+        const { amountOut, minAmountOut, priceImpact } = swapRes.val;
         
-        const quoteData: JupiterQuoteResponse = await response.json();
-        
-        const outputAmount = Number(quoteData.outAmount) / LAMPORTS_PER_SOL;
-        const priceImpact = Math.abs(Number(quoteData.priceImpactPct));
-        const minimumReceived = Number(quoteData.otherAmountThreshold) / LAMPORTS_PER_SOL;
+        const outputAmount = Number(amountOut) / LAMPORTS_PER_SOL;
+        const minimumReceived = Number(minAmountOut) / LAMPORTS_PER_SOL;
+        const priceImpactPct = Number(priceImpact) * 100;
 
         const result = {
           outputAmount: outputAmount.toFixed(8),
-          priceImpact: priceImpact,
+          priceImpact: priceImpactPct,
           minimumReceived: minimumReceived.toFixed(8)
         };
 
-        console.log('✅ RaydiumSwapService - Real simulation successful:', result);
+        console.log('✅ RaydiumSwapService - Real Raydium simulation successful:', result);
         return result;
         
       } else {
@@ -237,12 +274,12 @@ export class RaydiumSwapService {
       }
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Real simulation failed:', error);
+      console.error('❌ RaydiumSwapService - Real Raydium simulation failed:', error);
       return {
         outputAmount: '0',
         priceImpact: 0,
         minimumReceived: '0',
-        error: error instanceof Error ? error.message : 'Real simulation failed'
+        error: error instanceof Error ? error.message : 'Real Raydium simulation failed'
       };
     }
   }
@@ -252,12 +289,12 @@ export class RaydiumSwapService {
     amountIn: number,
     slippageTolerance: number = 1
   ): Promise<SwapResult> {
-    console.log('🔥 RaydiumSwapService - Executing REAL ON-CHAIN SWAP:', amountIn, 'ICC → SOL');
+    console.log('🔥 RaydiumSwapService - Executing REAL ON-CHAIN RAYDIUM SWAP:', amountIn, 'ICC → SOL');
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'Real swap service not available - RPC connection failed' };
+        return { success: false, error: 'Real Raydium swap service not available - SDK initialization failed' };
       }
     }
     
@@ -266,21 +303,25 @@ export class RaydiumSwapService {
         return { success: false, error: 'Wallet not connected or does not support signing' };
       }
 
-      console.log('🔍 Pre-swap validation for REAL swap...');
+      console.log('🔍 Pre-swap validation for REAL Raydium swap...');
       
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
       }
 
+      if (!this.poolInfo) {
+        return { success: false, error: 'No ICC/SOL pool found on Raydium' };
+      }
+
       const connection = await rpcService.getConnection();
-      console.log('💰 Checking ICC balance for REAL swap via:', rpcService.getCurrentEndpoint());
+      console.log('💰 Checking ICC balance for REAL Raydium swap via:', rpcService.getCurrentEndpoint());
       
       // Check ICC token balance
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const accountInfo = await connection.getTokenAccountBalance(iccTokenAccount);
       const currentBalance = accountInfo.value.uiAmount || 0;
       
-      console.log('💰 REAL swap balance check:', {
+      console.log('💰 REAL Raydium swap balance check:', {
         balance: currentBalance,
         required: amountIn,
         rpcEndpoint: rpcService.getCurrentEndpoint()
@@ -289,81 +330,71 @@ export class RaydiumSwapService {
       if (currentBalance < amountIn) {
         return { 
           success: false, 
-          error: `Insufficient ICC balance for real swap. Available: ${currentBalance}, Required: ${amountIn}` 
+          error: `Insufficient ICC balance for real Raydium swap. Available: ${currentBalance}, Required: ${amountIn}` 
         };
       }
 
-      // Get real quote from Jupiter
+      // Build swap transaction with Raydium SDK
+      const inputMint = this.ICC_MINT;
+      const outputMint = this.SOL_MINT;
       const amountInSmallestUnit = Math.floor(amountIn * Math.pow(10, 9));
-      const slippageBps = Math.floor(slippageTolerance * 100);
       
-      console.log('📡 Getting REAL quote from Jupiter API...');
-      const quoteResponse = await fetch(`${this.JUPITER_API_URL}/quote?inputMint=${this.ICC_MINT.toString()}&outputMint=${this.SOL_MINT.toString()}&amount=${amountInSmallestUnit}&slippageBps=${slippageBps}`);
+      console.log('🏗️ Building REAL Raydium swap transaction...');
       
-      if (!quoteResponse.ok) {
-        throw new Error('Failed to get real quote from Jupiter API');
-      }
+      // Get user token accounts
+      const tokenAccountsData = await connection.getTokenAccountsByOwner(wallet.publicKey, {
+        programId: TOKEN_PROGRAM_ID,
+      });
       
-      const quoteData: JupiterQuoteResponse = await quoteResponse.json();
-      console.log('✅ REAL Jupiter quote received:', {
-        inputAmount: quoteData.inAmount,
-        outputAmount: quoteData.outAmount,
-        priceImpact: quoteData.priceImpactPct
+      const tokenAccounts = parseTokenAccountResp({
+        owner: wallet.publicKey,
+        solBalance: await connection.getBalance(wallet.publicKey),
+        tokenAccounts: tokenAccountsData.value,
       });
 
-      // Get swap transaction from Jupiter
-      console.log('🏗️ Building REAL swap transaction...');
-      const swapResponse = await fetch(`${this.JUPITER_API_URL}/swap`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Build swap instruction
+      const swapRes = await this.raydium!.liquidity.swap({
+        poolInfo: this.poolInfo,
+        amountIn: amountInSmallestUnit,
+        mintIn: inputMint,
+        mintOut: outputMint,
+        slippage: slippageTolerance / 100,
+        ownerInfo: {
+          wallet: wallet.publicKey,
+          tokenAccounts,
         },
-        body: JSON.stringify({
-          quoteResponse: quoteData,
-          userPublicKey: wallet.publicKey.toString(),
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: 'auto'
-        }),
+        associatedOnly: false,
+        computeBudgetConfig: await this.raydium!.account.fetchComputeBudgetConfig(),
+        txVersion: TxVersion.V0,
       });
 
-      if (!swapResponse.ok) {
-        const errorData = await swapResponse.text();
-        throw new Error(`Jupiter swap API error: ${errorData}`);
+      if (swapRes.isErr) {
+        throw new Error(`Raydium swap transaction build failed: ${swapRes.val}`);
       }
 
-      const swapData: JupiterSwapResponse = await swapResponse.json();
-      console.log('✅ REAL swap transaction received from Jupiter');
-
-      // Deserialize the transaction
-      const swapTransactionBuf = Buffer.from(swapData.swapTransaction, 'base64');
-      const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
+      const { transaction } = swapRes.val;
       
-      console.log('🔐 Signing REAL transaction...');
+      console.log('🔐 Signing REAL Raydium transaction...');
       const signedTransaction = await wallet.signTransaction(transaction);
       
-      console.log('📡 Submitting REAL transaction to blockchain...');
+      console.log('📡 Submitting REAL Raydium transaction to blockchain...');
       const signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
         maxRetries: 3
       });
 
-      console.log('⏳ Confirming REAL transaction:', signature);
-      const confirmation = await connection.confirmTransaction({
-        signature,
-        blockhash: (await connection.getLatestBlockhash()).blockhash,
-        lastValidBlockHeight: swapData.lastValidBlockHeight
-      }, 'confirmed');
+      console.log('⏳ Confirming REAL Raydium transaction:', signature);
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
 
       if (confirmation.value.err) {
-        throw new Error(`Real transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        throw new Error(`Real Raydium transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
 
-      console.log('🎉 REAL ON-CHAIN SWAP COMPLETED SUCCESSFULLY!', {
+      console.log('🎉 REAL ON-CHAIN RAYDIUM SWAP COMPLETED SUCCESSFULLY!', {
         signature,
         amountIn,
-        jupiterQuote: quoteData.outAmount
+        poolId: this.poolInfo.id
       });
       
       return { 
@@ -372,12 +403,12 @@ export class RaydiumSwapService {
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - REAL swap execution failed:', {
+      console.error('❌ RaydiumSwapService - REAL Raydium swap execution failed:', {
         error: error instanceof Error ? error.message : error,
         rpcEndpoint: rpcService.getCurrentEndpoint()
       });
       
-      let errorMessage = 'Real swap execution failed';
+      let errorMessage = 'Real Raydium swap execution failed';
       if (error instanceof Error) {
         if (error.message.includes('User rejected')) {
           errorMessage = 'Transaction was rejected by user';
@@ -402,4 +433,4 @@ export class RaydiumSwapService {
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ REAL RaydiumSwapService instance exported');
+console.log('✅ REAL RaydiumSwapService instance exported with direct Raydium SDK integration');
