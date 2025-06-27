@@ -339,8 +339,8 @@ export class RaydiumSwapService {
       const swapTransaction = await this.raydium!.liquidity.swap({
         poolInfo: pool as any, // Type assertion to handle SDK type complexity
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
-        tokenIn: this.ICC_MINT,
-        tokenOut: this.SOL_MINT,
+        inputMint: this.ICC_MINT,
+        outputMint: this.SOL_MINT,
         slippage: slippageTolerance / 100,
         txVersion: TxVersion.V0, // Use proper TxVersion enum
       });
