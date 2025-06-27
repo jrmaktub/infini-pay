@@ -161,9 +161,9 @@ export class RaydiumSwapService {
           const pool = poolsArray[0];
           const poolInfo: PoolInfo = {
             poolId: pool.id,
-            baseReserve: parseFloat(pool.mintAmountA),
-            quoteReserve: parseFloat(pool.mintAmountB),
-            price: parseFloat(pool.price),
+            baseReserve: pool.mintAmountA,
+            quoteReserve: pool.mintAmountB,
+            price: pool.price,
             volume24h: pool.day?.volume || 0
           };
 
@@ -228,9 +228,9 @@ export class RaydiumSwapService {
         
         if (poolsArray.length > 0) {
           const pool = poolsArray[0];
-          const price = parseFloat(pool.price);
+          const price = pool.price;
           const outputAmount = inputAmount * price;
-          const priceImpact = Math.min((inputAmount / parseFloat(pool.mintAmountA)) * 100, 15);
+          const priceImpact = Math.min((inputAmount / pool.mintAmountA) * 100, 15);
           const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
 
           const result = {
@@ -326,7 +326,7 @@ export class RaydiumSwapService {
 
       const pool = poolsArray[0];
       
-      // Check if pool is a standard pool (required for swap)
+      // Check if pool is a standard pool (required for swap) - handle both Standard subtypes
       if (pool.type !== 'Standard') {
         return { success: false, error: 'Pool type not supported for swaps. Only standard pools are supported.' };
       }
@@ -337,7 +337,7 @@ export class RaydiumSwapService {
       console.log('🚀 Executing REAL on-chain swap transaction...');
       
       const swapTransaction = await this.raydium!.liquidity.swap({
-        poolInfo: pool,
+        poolInfo: pool as any, // Type assertion to handle SDK type complexity
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         tokenIn: this.ICC_MINT,
         tokenOut: this.SOL_MINT,
