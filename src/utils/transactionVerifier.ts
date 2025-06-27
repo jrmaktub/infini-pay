@@ -14,7 +14,7 @@ export interface TransactionVerificationResult {
 export class TransactionVerifier {
   
   static async verifyTransaction(signature: string): Promise<TransactionVerificationResult> {
-    console.log('🔍 Verifying transaction on blockchain:', signature);
+    console.log('🔍 Verifying REAL transaction on blockchain:', signature);
     
     try {
       const connection = await rpcService.getConnection();
@@ -26,7 +26,7 @@ export class TransactionVerifier {
       });
       
       if (!transaction) {
-        console.log('❌ Transaction not found on blockchain:', signature);
+        console.log('❌ REAL transaction not found on blockchain:', signature);
         return {
           exists: false,
           confirmed: false,
@@ -37,7 +37,7 @@ export class TransactionVerifier {
       
       const isConfirmed = transaction.meta?.err === null;
       
-      console.log('✅ Transaction verification result:', {
+      console.log('✅ REAL transaction verification result:', {
         signature,
         exists: true,
         confirmed: isConfirmed,
@@ -56,7 +56,7 @@ export class TransactionVerifier {
       };
       
     } catch (error) {
-      console.error('❌ Error verifying transaction:', error);
+      console.error('❌ Error verifying REAL transaction:', error);
       return {
         exists: false,
         confirmed: false,
@@ -81,7 +81,7 @@ export class TransactionVerifier {
   }
   
   static isMockTransaction(signature: string): boolean {
-    // Check if this is a mock transaction signature
+    // Real transactions should not start with SWAP_ prefix
     return signature.startsWith('SWAP_') && signature.includes('_');
   }
   
