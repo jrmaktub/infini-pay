@@ -107,7 +107,7 @@ const Index = () => {
                     InfiniPay
                   </h1>
                   <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-                    Your Solana-powered payment solution for Próspera
+                    payment solution for Próspera
                   </p>
                 </header>
                 
