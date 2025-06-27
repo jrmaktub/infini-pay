@@ -1,4 +1,5 @@
 
+
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -29,7 +30,13 @@ interface PoolInfo {
 
 // Type guard to check if a pool is a Standard pool (required for swaps)
 function isStandardPool(pool: any): pool is any {
-  return pool && pool.type === 'Standard' && 'marketId' in pool && 'configId' in pool;
+  return pool && 
+         pool.type === 'Standard' && 
+         'marketId' in pool && 
+         'configId' in pool &&
+         'lpPrice' in pool &&
+         'lpAmount' in pool &&
+         'lpMint' in pool;
 }
 
 export class RaydiumSwapService {
@@ -330,11 +337,11 @@ export class RaydiumSwapService {
         return { success: false, error: 'No liquidity pool found for ICC/SOL' };
       }
 
-      // Find a Standard pool (required for swaps)
+      // Find a Standard pool (required for swaps) and cast it properly
       const standardPool = poolsArray.find(pool => isStandardPool(pool));
       
       if (!standardPool) {
-        console.log('Available pool types:', poolsArray.map(p => p.type));
+        console.log('Available pool types:', poolsArray.map(p => `${p.type} (${p.id})`));
         return { success: false, error: 'No Standard pool found for ICC/SOL. Only Standard pools support swaps.' };
       }
       
@@ -348,8 +355,9 @@ export class RaydiumSwapService {
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
       // Use the correct parameter structure for SDK v2 swap with Standard pool
+      // Cast the standardPool to the correct type to satisfy TypeScript
       const swapTransaction = await this.raydium!.liquidity.swap({
-        poolInfo: standardPool, // Now using verified Standard pool
+        poolInfo: standardPool as any, // Explicit cast to bypass type checking
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
