@@ -1,11 +1,9 @@
 
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
+import { Raydium, parseTokenAccountResp, ApiV3PoolInfoItem } from '@raydium-io/raydium-sdk-v2';
 import { rpcService } from './rpcService';
 import './polyfills';
-
-// For now, we'll implement a basic swap service without the problematic SDK imports
-// until we can verify what exports are actually available
 
 interface SwapResult {
   success: boolean;
@@ -30,16 +28,17 @@ interface PoolInfo {
 }
 
 export class RaydiumSwapService {
+  private raydium: Raydium | null = null;
   private isInitialized: boolean = false;
   private ICC_MINT: PublicKey;
   private SOL_MINT: PublicKey;
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing basic swap service...');
+    console.log('🚀 RaydiumSwapService - Initializing with SDK v2...');
     try {
       this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
       this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      console.log('✅ RaydiumSwapService - Basic service ready');
+      console.log('✅ RaydiumSwapService - Constructor ready');
     } catch (error) {
       console.error('❌ RaydiumSwapService - Constructor failed:', error);
       throw error;
@@ -47,9 +46,9 @@ export class RaydiumSwapService {
   }
 
   async initialize(): Promise<boolean> {
-    console.log('🔧 RaydiumSwapService - Starting basic initialization...');
+    console.log('🔧 RaydiumSwapService - Starting SDK v2 initialization...');
     
-    if (this.isInitialized) {
+    if (this.isInitialized && this.raydium) {
       console.log('✅ RaydiumSwapService - Already initialized');
       return true;
     }
@@ -58,52 +57,87 @@ export class RaydiumSwapService {
       const connection = await rpcService.getConnection();
       console.log('✅ RPC connection established:', rpcService.getCurrentEndpoint());
       
-      // For now, we'll just verify the connection works
+      // Initialize Raydium SDK v2
+      console.log('🔄 Loading Raydium SDK v2...');
+      this.raydium = await Raydium.load({
+        connection,
+        cluster: 'mainnet', // Use mainnet for real swaps
+        disableFeatureCheck: false,
+        disableLoadToken: false,
+        blockhashCommitment: 'finalized',
+      });
+      
+      console.log('✅ Raydium SDK v2 loaded successfully');
+      
+      // Verify the connection works
       const latestBlockhash = await connection.getLatestBlockhash();
       console.log('✅ Connection verified with blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
-      console.log('✅ RaydiumSwapService initialized successfully');
+      console.log('✅ RaydiumSwapService initialized successfully with SDK v2');
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Initialization failed:', {
+      console.error('❌ RaydiumSwapService - SDK v2 initialization failed:', {
         error: error instanceof Error ? error.message : error,
         rpcInfo: rpcService.getConnectionInfo()
       });
       this.isInitialized = false;
+      this.raydium = null;
       rpcService.reset();
       return false;
     }
   }
 
   async getAvailableSwapPairs(): Promise<SwapPair[]> {
-    console.log('📋 RaydiumSwapService - Fetching swap pairs...');
+    console.log('📋 RaydiumSwapService - Fetching swap pairs with SDK v2...');
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        throw new Error('Failed to initialize RaydiumSwapService');
+        throw new Error('Failed to initialize RaydiumSwapService with SDK v2');
       }
     }
     
-    const pairs: SwapPair[] = [
-      {
+    try {
+      // Use SDK v2 to fetch available pools
+      const poolsData = await this.raydium!.api.fetchPoolByMints({
+        mint1: this.ICC_MINT.toString(),
+        mint2: this.SOL_MINT.toString(),
+      });
+
+      const pairs: SwapPair[] = [];
+      
+      if (poolsData && poolsData.length > 0) {
+        for (const pool of poolsData) {
+          pairs.push({
+            baseMint: pool.mintA.address,
+            quoteMint: pool.mintB.address,
+            baseSymbol: pool.mintA.symbol || 'ICC',
+            quoteSymbol: pool.mintB.symbol || 'SOL',
+            poolId: pool.id
+          });
+        }
+      }
+
+      console.log('✅ RaydiumSwapService - SDK v2 swap pairs found:', pairs.length);
+      return pairs;
+    } catch (error) {
+      console.error('❌ Error fetching pools with SDK v2:', error);
+      // Return fallback pair
+      return [{
         baseMint: this.ICC_MINT.toString(),
         quoteMint: this.SOL_MINT.toString(),
         baseSymbol: 'ICC',
         quoteSymbol: 'SOL',
-        poolId: 'basic-icc-sol-pool'
-      }
-    ];
-
-    console.log('✅ RaydiumSwapService - Swap pairs available:', pairs.length);
-    return pairs;
+        poolId: 'fallback-pool'
+      }];
+    }
   }
 
   async getPoolInfo(baseToken: string, quoteToken: string): Promise<PoolInfo | null> {
-    console.log(`🏊 RaydiumSwapService - Fetching pool info for ${baseToken}/${quoteToken}...`);
+    console.log(`🏊 RaydiumSwapService - Fetching pool info with SDK v2 for ${baseToken}/${quoteToken}...`);
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
         console.error('❌ RaydiumSwapService - Failed to initialize for pool info');
@@ -113,23 +147,30 @@ export class RaydiumSwapService {
     
     try {
       if (baseToken === 'ICC' && quoteToken === 'SOL') {
-        // Return mock pool info for now
-        const poolInfo: PoolInfo = {
-          poolId: 'basic-icc-sol-pool',
-          baseReserve: 1000000,
-          quoteReserve: 1000,
-          price: 0.001,
-          volume24h: 10000
-        };
+        const poolsData = await this.raydium!.api.fetchPoolByMints({
+          mint1: this.ICC_MINT.toString(),
+          mint2: this.SOL_MINT.toString(),
+        });
 
-        console.log('✅ RaydiumSwapService - Pool info fetched:', poolInfo);
-        return poolInfo;
+        if (poolsData && poolsData.length > 0) {
+          const pool = poolsData[0];
+          const poolInfo: PoolInfo = {
+            poolId: pool.id,
+            baseReserve: parseFloat(pool.mintAmountA.toString()),
+            quoteReserve: parseFloat(pool.mintAmountB.toString()),
+            price: parseFloat(pool.price),
+            volume24h: pool.day?.volume || 0
+          };
+
+          console.log('✅ RaydiumSwapService - SDK v2 pool info fetched:', poolInfo);
+          return poolInfo;
+        }
       }
 
       console.log('ℹ️ RaydiumSwapService - No pool info available for this pair');
       return null;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Error fetching pool info:', error);
+      console.error('❌ RaydiumSwapService - Error fetching pool info with SDK v2:', error);
       return null;
     }
   }
@@ -146,16 +187,16 @@ export class RaydiumSwapService {
     minimumReceived: string;
     error?: string;
   }> {
-    console.log(`🧮 RaydiumSwapService - Swap simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
+    console.log(`🧮 RaydiumSwapService - SDK v2 swap simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
         return {
           outputAmount: '0',
           priceImpact: 0,
           minimumReceived: '0',
-          error: 'Swap service not available - initialization failed'
+          error: 'SDK v2 not available - initialization failed'
         };
       }
     }
@@ -172,32 +213,39 @@ export class RaydiumSwapService {
       }
 
       if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
-        // Simple simulation: 1 ICC = 0.001 SOL (mock rate)
-        const exchangeRate = 0.001;
-        const outputAmount = inputAmount * exchangeRate;
-        const priceImpact = Math.min(inputAmount / 10000, 5); // Simple price impact calculation
-        const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
+        // Get pool information for accurate simulation
+        const poolsData = await this.raydium!.api.fetchPoolByMints({
+          mint1: this.ICC_MINT.toString(),
+          mint2: this.SOL_MINT.toString(),
+        });
 
-        const result = {
-          outputAmount: outputAmount.toFixed(8),
-          priceImpact: priceImpact,
-          minimumReceived: minimumReceived.toFixed(8)
-        };
+        if (poolsData && poolsData.length > 0) {
+          const pool = poolsData[0];
+          const price = parseFloat(pool.price);
+          const outputAmount = inputAmount * price;
+          const priceImpact = Math.min((inputAmount / parseFloat(pool.mintAmountA.toString())) * 100, 15);
+          const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
 
-        console.log('✅ RaydiumSwapService - Simulation successful:', result);
-        return result;
-        
-      } else {
-        return {
-          outputAmount: '0',
-          priceImpact: 0,
-          minimumReceived: '0',
-          error: 'Only ICC → SOL swaps are currently supported'
-        };
+          const result = {
+            outputAmount: outputAmount.toFixed(8),
+            priceImpact: priceImpact,
+            minimumReceived: minimumReceived.toFixed(8)
+          };
+
+          console.log('✅ RaydiumSwapService - SDK v2 simulation successful:', result);
+          return result;
+        }
       }
 
+      return {
+        outputAmount: '0',
+        priceImpact: 0,
+        minimumReceived: '0',
+        error: 'Pool not found or unsupported swap pair'
+      };
+
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Simulation failed:', error);
+      console.error('❌ RaydiumSwapService - SDK v2 simulation failed:', error);
       return {
         outputAmount: '0',
         priceImpact: 0,
@@ -212,12 +260,12 @@ export class RaydiumSwapService {
     amountIn: number,
     slippageTolerance: number = 1
   ): Promise<SwapResult> {
-    console.log('🔥 RaydiumSwapService - Executing swap:', amountIn, 'ICC → SOL');
+    console.log('🔥 RaydiumSwapService - Executing REAL ON-CHAIN swap with SDK v2:', amountIn, 'ICC → SOL');
     
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'Swap service not available - initialization failed' };
+        return { success: false, error: 'SDK v2 not available - initialization failed' };
       }
     }
     
@@ -226,7 +274,7 @@ export class RaydiumSwapService {
         return { success: false, error: 'Wallet not connected or does not support signing' };
       }
 
-      console.log('🔍 Pre-swap validation...');
+      console.log('🔍 Pre-swap validation with SDK v2...');
       
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
@@ -257,27 +305,66 @@ export class RaydiumSwapService {
         console.warn('⚠️ Could not check ICC balance, proceeding with swap attempt');
       }
 
-      // For now, return a mock successful transaction
-      // In a real implementation, this would build and send the actual swap transaction
-      const mockSignature = `SWAP_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      // Get pool information
+      const poolsData = await this.raydium!.api.fetchPoolByMints({
+        mint1: this.ICC_MINT.toString(),
+        mint2: this.SOL_MINT.toString(),
+      });
+
+      if (!poolsData || poolsData.length === 0) {
+        return { success: false, error: 'No liquidity pool found for ICC/SOL' };
+      }
+
+      const pool = poolsData[0];
+      console.log('🏊 Using pool:', pool.id);
+
+      // Execute REAL on-chain swap using SDK v2
+      console.log('🚀 Executing REAL on-chain swap transaction...');
       
-      console.log('🎉 Mock swap completed successfully:', {
-        signature: mockSignature,
-        amountIn
+      const swapTransaction = await this.raydium!.liquidity.swap({
+        poolInfo: pool,
+        amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
+        tokenIn: this.ICC_MINT,
+        tokenOut: this.SOL_MINT,
+        slippage: slippageTolerance / 100,
+        txVersion: 'V0', // Use versioned transactions
+      });
+
+      // Sign and send the transaction
+      console.log('✍️ Signing transaction...');
+      const signedTx = await wallet.signTransaction(swapTransaction);
+      
+      console.log('📡 Sending REAL transaction to network...');
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      console.log('⏳ Confirming REAL transaction:', signature);
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+      
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      console.log('🎉 REAL on-chain swap completed successfully:', {
+        signature,
+        amountIn,
+        pool: pool.id
       });
       
       return { 
         success: true, 
-        signature: mockSignature
+        signature: signature
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Swap execution failed:', {
+      console.error('❌ RaydiumSwapService - REAL swap execution failed:', {
         error: error instanceof Error ? error.message : error,
         rpcEndpoint: rpcService.getCurrentEndpoint()
       });
       
-      let errorMessage = 'Swap execution failed';
+      let errorMessage = 'Real swap execution failed';
       if (error instanceof Error) {
         if (error.message.includes('User rejected')) {
           errorMessage = 'Transaction was rejected by user';
@@ -302,4 +389,4 @@ export class RaydiumSwapService {
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ RaydiumSwapService instance exported with basic functionality');
+console.log('✅ RaydiumSwapService instance exported with REAL SDK v2 functionality');
