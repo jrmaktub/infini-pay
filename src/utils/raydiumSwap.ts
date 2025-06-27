@@ -368,19 +368,17 @@ export class RaydiumSwapService {
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
       // Use the SDK v2 swap method with the correct structure
-      // Based on SDK v2 documentation, the swap method expects these specific parameters
+      // Based on actual SDK v2 type definitions, ensuring all PublicKey objects are converted to strings
       const swapResult = await this.raydium!.liquidity.swap({
         poolInfo: standardPool,
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
-        inputMint: this.ICC_MINT,
-        outputMint: this.SOL_MINT,
-        userKeys: {
-          owner: wallet.publicKey,
-          tokenAccountIn: iccTokenAccount,
-          tokenAccountOut: solTokenAccount,
-        },
+        inputMint: this.ICC_MINT.toBase58(), // Convert PublicKey to string
+        outputMint: this.SOL_MINT.toBase58(), // Convert PublicKey to string
+        ownerPubkey: wallet.publicKey.toBase58(), // Convert PublicKey to string
+        inputTokenAccount: iccTokenAccount.toBase58(), // Convert PublicKey to string
+        outputTokenAccount: solTokenAccount.toBase58(), // Convert PublicKey to string
         txVersion: TxVersion.V0,
       });
 
