@@ -1,4 +1,3 @@
-
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { 
@@ -7,7 +6,7 @@ import {
   parseTokenAccountResp,
   ApiV3PoolInfoStandardItem,
   CacheLTA
-} from '@raydium-io/raydium-sdk-v2';
+} from '@raydium-io/raydium-sdk';
 import { rpcService } from './rpcService';
 import './polyfills';
 
