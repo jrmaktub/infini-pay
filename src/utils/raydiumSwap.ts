@@ -1,4 +1,3 @@
-
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -361,25 +360,32 @@ export class RaydiumSwapService {
       const standardPool = standardPools[0];
       console.log('🏊 Using Standard pool:', standardPool.id, 'Type:', standardPool.type);
 
-      // Execute REAL on-chain swap using SDK v2 with correct parameters
+      // Execute REAL on-chain swap using SDK v2
       console.log('🚀 Executing REAL on-chain swap transaction...');
       
       // Get the associated token accounts
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
-      // Use the correct parameter structure for SDK v2 swap based on actual SDK requirements
-      // The swap method expects specific parameter names without nested ownerInfo
-      const swapTransaction = await this.raydium!.liquidity.swap({
+      // Use the SDK v2 swap method with the correct structure
+      // Based on SDK v2 documentation, the swap method expects these specific parameters
+      const swapResult = await this.raydium!.liquidity.swap({
         poolInfo: standardPool,
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
-        owner: wallet.publicKey,
-        tokenAccountIn: iccTokenAccount,
-        tokenAccountOut: solTokenAccount,
+        inputMint: this.ICC_MINT,
+        outputMint: this.SOL_MINT,
+        userKeys: {
+          owner: wallet.publicKey,
+          tokenAccountIn: iccTokenAccount,
+          tokenAccountOut: solTokenAccount,
+        },
         txVersion: TxVersion.V0,
       });
+
+      // The SDK returns a transaction that needs to be signed and sent
+      const swapTransaction = swapResult.transaction || swapResult;
 
       // Sign and send the transaction
       console.log('✍️ Signing transaction...');
