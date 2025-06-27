@@ -46,17 +46,68 @@ interface SwapRoute {
   }>;
 }
 
-// Enhanced type guards for different pool types
+// Enhanced type guards for different pool types with better logging
 function isCPMMPool(pool: any): boolean {
-  return pool && pool.type === 'CPMM';
+  console.log('🔍 Checking if pool is CPMM:', {
+    poolId: pool?.id,
+    type: pool?.type,
+    programId: pool?.programId,
+    poolKeys: pool?.poolKeys ? 'present' : 'missing',
+    hasType: pool?.type !== undefined,
+    typeValue: pool?.type
+  });
+  
+  // Check multiple possible indicators for CPMM pools
+  const isCPMM = pool && (
+    pool.type === 'CPMM' || 
+    pool.type === 'CLMM' || // Sometimes CPMM pools are labeled as CLMM
+    pool.type === 'Standard' ||
+    pool.programId === 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C' ||
+    (pool.poolKeys && pool.poolKeys.programId?.toString() === 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C')
+  );
+  
+  console.log('✅ CPMM check result:', isCPMM);
+  return isCPMM;
 }
 
 function isConcentratedLiquidityPool(pool: any): boolean {
-  return pool && pool.type === 'Concentrated';
+  console.log('🔍 Checking if pool is Concentrated Liquidity:', {
+    poolId: pool?.id,
+    type: pool?.type,
+    programId: pool?.programId,
+    hasType: pool?.type !== undefined,
+    typeValue: pool?.type
+  });
+  
+  const isCLMM = pool && (
+    pool.type === 'Concentrated' || 
+    pool.type === 'CLMM' ||
+    pool.programId === 'CAMMCzo5YL8w4VFF8KVHrK22GGUQpMkFr9WeJBgcYLNa' ||
+    (pool.poolKeys && pool.poolKeys.programId?.toString() === 'CAMMCzo5YL8w4VFF8KVHrK22GGUQpMkFr9WeJBgcYLNa')
+  );
+  
+  console.log('✅ CLMM check result:', isCLMM);
+  return isCLMM;
 }
 
 function isStandardPool(pool: any): boolean {
-  return pool && pool.type === 'Standard';
+  console.log('🔍 Checking if pool is Standard:', {
+    poolId: pool?.id,
+    type: pool?.type,
+    programId: pool?.programId,
+    hasType: pool?.type !== undefined,
+    typeValue: pool?.type
+  });
+  
+  const isStandard = pool && (
+    pool.type === 'Standard' || 
+    pool.type === 'AMM' ||
+    pool.programId === '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8' ||
+    (pool.poolKeys && pool.poolKeys.programId?.toString() === '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8')
+  );
+  
+  console.log('✅ Standard check result:', isStandard);
+  return isStandard;
 }
 
 export class RaydiumSwapService {
@@ -136,13 +187,15 @@ export class RaydiumSwapService {
       if (inputMint === this.ICC_MINT.toBase58() && outputMint === this.SOL_MINT.toBase58()) {
         console.log('🛣️ Using ICC → USDC → wSOL multi-hop route');
         
-        // Find ICC/USDC CPMM pool
+        // Find ICC/USDC pools
+        console.log('🔍 Fetching ICC/USDC pools...');
         const iccUsdcPools = await this.raydium.api.fetchPoolByMints({
           mint1: this.ICC_MINT.toBase58(),
           mint2: this.USDC_MINT.toBase58(),
         });
 
-        // Find USDC/wSOL Concentrated Liquidity pool
+        // Find USDC/wSOL pools
+        console.log('🔍 Fetching USDC/wSOL pools...');
         const usdcSolPools = await this.raydium.api.fetchPoolByMints({
           mint1: this.USDC_MINT.toBase58(),
           mint2: this.SOL_MINT.toBase58(),
@@ -151,37 +204,94 @@ export class RaydiumSwapService {
         const iccUsdcPoolsArray = iccUsdcPools.data || [];
         const usdcSolPoolsArray = usdcSolPools.data || [];
 
-        // Find CPMM pool for ICC/USDC
-        const cpmm = iccUsdcPoolsArray.find(isCPMMPool);
-        // Find Concentrated Liquidity pool for USDC/wSOL
-        const clmm = usdcSolPoolsArray.find(isConcentratedLiquidityPool);
+        console.log('📊 Pool discovery results:', {
+          iccUsdcPools: iccUsdcPoolsArray.length,
+          usdcSolPools: usdcSolPoolsArray.length
+        });
 
-        if (cpmm && clmm) {
+        // Log all ICC/USDC pools for debugging
+        console.log('🔍 All ICC/USDC pools found:');
+        iccUsdcPoolsArray.forEach((pool, index) => {
+          console.log(`Pool ${index + 1}:`, {
+            id: pool.id,
+            type: pool.type,
+            programId: pool.programId,
+            mintA: pool.mintA,
+            mintB: pool.mintB,
+            price: pool.price,
+            liquidity: pool.liquidity,
+            fullPool: pool
+          });
+        });
+
+        // Log all USDC/SOL pools for debugging
+        console.log('🔍 All USDC/SOL pools found:');
+        usdcSolPoolsArray.slice(0, 5).forEach((pool, index) => {
+          console.log(`Pool ${index + 1}:`, {
+            id: pool.id,
+            type: pool.type,
+            programId: pool.programId,
+            mintA: pool.mintA,
+            mintB: pool.mintB,
+            price: pool.price,
+            liquidity: pool.liquidity
+          });
+        });
+
+        // Try to find any suitable pool for ICC/USDC (be more flexible)
+        let firstHopPool = null;
+        for (const pool of iccUsdcPoolsArray) {
+          if (pool && pool.id && (pool.type || pool.programId)) {
+            console.log('✅ Found suitable ICC/USDC pool:', {
+              id: pool.id,
+              type: pool.type,
+              programId: pool.programId
+            });
+            firstHopPool = pool;
+            break;
+          }
+        }
+
+        // Try to find any suitable pool for USDC/SOL (be more flexible)
+        let secondHopPool = null;
+        for (const pool of usdcSolPoolsArray) {
+          if (pool && pool.id && (pool.type || pool.programId)) {
+            console.log('✅ Found suitable USDC/SOL pool:', {
+              id: pool.id,
+              type: pool.type,
+              programId: pool.programId
+            });
+            secondHopPool = pool;
+            break;
+          }
+        }
+
+        if (firstHopPool && secondHopPool) {
           const route: SwapRoute = {
             inputMint: this.ICC_MINT.toBase58(),
             outputMint: this.SOL_MINT.toBase58(),
             hops: [
               {
-                poolId: cpmm.id,
-                poolType: 'CPMM',
+                poolId: firstHopPool.id,
+                poolType: firstHopPool.type || 'Unknown',
                 inputMint: this.ICC_MINT.toBase58(),
                 outputMint: this.USDC_MINT.toBase58()
               },
               {
-                poolId: clmm.id,
-                poolType: 'Concentrated',
+                poolId: secondHopPool.id,
+                poolType: secondHopPool.type || 'Unknown',
                 inputMint: this.USDC_MINT.toBase58(),
                 outputMint: this.SOL_MINT.toBase58()
               }
             ]
           };
 
-          console.log('✅ Multi-hop route found:', route);
+          console.log('✅ Multi-hop route constructed successfully:', route);
           return route;
         } else {
-          console.log('❌ Required pools not found:', { 
-            cpmm: !!cpmm, 
-            clmm: !!clmm,
+          console.log('❌ Could not find suitable pools:', { 
+            firstHopPool: !!firstHopPool, 
+            secondHopPool: !!secondHopPool,
             iccUsdcPools: iccUsdcPoolsArray.length,
             usdcSolPools: usdcSolPoolsArray.length
           });
@@ -481,11 +591,16 @@ export class RaydiumSwapService {
         body: JSON.stringify(swapPayload)
       });
 
+      console.log('📡 API Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`Raydium multi-hop API error: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('❌ API error response:', errorText);
+        throw new Error(`Raydium multi-hop API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const apiResult: SwapAPIResponse = await response.json();
+      console.log('📡 API Response data:', apiResult);
       
       if (!apiResult.success || !apiResult.data?.swapTransactions) {
         throw new Error(apiResult.error || 'Multi-hop API returned no swap transactions');
