@@ -1,7 +1,7 @@
 
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
-import { Raydium, parseTokenAccountResp, ApiV3PoolInfoItem } from '@raydium-io/raydium-sdk-v2';
+import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
 import { rpcService } from './rpcService';
 import './polyfills';
 
@@ -107,8 +107,11 @@ export class RaydiumSwapService {
 
       const pairs: SwapPair[] = [];
       
-      if (poolsData && poolsData.length > 0) {
-        for (const pool of poolsData) {
+      // Handle the pools data correctly - it's an object with data property
+      const poolsArray = poolsData.data || [];
+      
+      if (poolsArray.length > 0) {
+        for (const pool of poolsArray) {
           pairs.push({
             baseMint: pool.mintA.address,
             quoteMint: pool.mintB.address,
@@ -152,8 +155,10 @@ export class RaydiumSwapService {
           mint2: this.SOL_MINT.toString(),
         });
 
-        if (poolsData && poolsData.length > 0) {
-          const pool = poolsData[0];
+        const poolsArray = poolsData.data || [];
+        
+        if (poolsArray.length > 0) {
+          const pool = poolsArray[0];
           const poolInfo: PoolInfo = {
             poolId: pool.id,
             baseReserve: parseFloat(pool.mintAmountA.toString()),
@@ -219,8 +224,10 @@ export class RaydiumSwapService {
           mint2: this.SOL_MINT.toString(),
         });
 
-        if (poolsData && poolsData.length > 0) {
-          const pool = poolsData[0];
+        const poolsArray = poolsData.data || [];
+        
+        if (poolsArray.length > 0) {
+          const pool = poolsArray[0];
           const price = parseFloat(pool.price);
           const outputAmount = inputAmount * price;
           const priceImpact = Math.min((inputAmount / parseFloat(pool.mintAmountA.toString())) * 100, 15);
@@ -311,11 +318,13 @@ export class RaydiumSwapService {
         mint2: this.SOL_MINT.toString(),
       });
 
-      if (!poolsData || poolsData.length === 0) {
+      const poolsArray = poolsData.data || [];
+      
+      if (poolsArray.length === 0) {
         return { success: false, error: 'No liquidity pool found for ICC/SOL' };
       }
 
-      const pool = poolsData[0];
+      const pool = poolsArray[0];
       console.log('🏊 Using pool:', pool.id);
 
       // Execute REAL on-chain swap using SDK v2
@@ -327,7 +336,7 @@ export class RaydiumSwapService {
         tokenIn: this.ICC_MINT,
         tokenOut: this.SOL_MINT,
         slippage: slippageTolerance / 100,
-        txVersion: 'V0', // Use versioned transactions
+        txVersion: TxVersion.V0, // Use proper TxVersion enum
       });
 
       // Sign and send the transaction
