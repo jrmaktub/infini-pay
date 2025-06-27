@@ -1,5 +1,3 @@
-
-
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -354,14 +352,14 @@ export class RaydiumSwapService {
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
-      // Use the correct parameter structure for SDK v2 swap with Standard pool
-      // Cast the standardPool to the correct type to satisfy TypeScript
+      // Use the correct parameter structure for SDK v2 swap - based on actual SwapParam type
       const swapTransaction = await this.raydium!.liquidity.swap({
-        poolInfo: standardPool as any, // Explicit cast to bypass type checking
+        poolInfo: standardPool,
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
-        slippage: slippageTolerance / 100,
+        inputMint: this.ICC_MINT.toBase58(),
+        outputMint: this.SOL_MINT.toBase58(),
         userKeys: {
           owner: wallet.publicKey,
           tokenAccountIn: iccTokenAccount,
