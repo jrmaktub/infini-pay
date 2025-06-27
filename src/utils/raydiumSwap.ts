@@ -99,10 +99,10 @@ export class RaydiumSwapService {
     }
     
     try {
-      // Use SDK v2 to fetch available pools
+      // Use SDK v2 to fetch available pools - convert PublicKey to string
       const poolsData = await this.raydium!.api.fetchPoolByMints({
-        mint1: this.ICC_MINT.toString(),
-        mint2: this.SOL_MINT.toString(),
+        mint1: this.ICC_MINT.toBase58(),
+        mint2: this.SOL_MINT.toBase58(),
       });
 
       const pairs: SwapPair[] = [];
@@ -150,9 +150,10 @@ export class RaydiumSwapService {
     
     try {
       if (baseToken === 'ICC' && quoteToken === 'SOL') {
+        // Convert PublicKey to string for API call
         const poolsData = await this.raydium!.api.fetchPoolByMints({
-          mint1: this.ICC_MINT.toString(),
-          mint2: this.SOL_MINT.toString(),
+          mint1: this.ICC_MINT.toBase58(),
+          mint2: this.SOL_MINT.toBase58(),
         });
 
         const poolsArray = poolsData.data || [];
@@ -218,10 +219,10 @@ export class RaydiumSwapService {
       }
 
       if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
-        // Get pool information for accurate simulation
+        // Get pool information for accurate simulation - convert PublicKey to string
         const poolsData = await this.raydium!.api.fetchPoolByMints({
-          mint1: this.ICC_MINT.toString(),
-          mint2: this.SOL_MINT.toString(),
+          mint1: this.ICC_MINT.toBase58(),
+          mint2: this.SOL_MINT.toBase58(),
         });
 
         const poolsArray = poolsData.data || [];
@@ -312,10 +313,10 @@ export class RaydiumSwapService {
         console.warn('⚠️ Could not check ICC balance, proceeding with swap attempt');
       }
 
-      // Get pool information
+      // Get pool information - convert PublicKey to string
       const poolsData = await this.raydium!.api.fetchPoolByMints({
-        mint1: this.ICC_MINT.toString(),
-        mint2: this.SOL_MINT.toString(),
+        mint1: this.ICC_MINT.toBase58(),
+        mint2: this.SOL_MINT.toBase58(),
       });
 
       const poolsArray = poolsData.data || [];
@@ -339,8 +340,8 @@ export class RaydiumSwapService {
       const swapTransaction = await this.raydium!.liquidity.swap({
         poolInfo: pool as any, // Type assertion to handle SDK type complexity
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
-        inputMint: this.ICC_MINT,
-        outputMint: this.SOL_MINT,
+        inputMint: this.ICC_MINT.toBase58(), // Convert PublicKey to string
+        outputMint: this.SOL_MINT.toBase58(), // Convert PublicKey to string
         slippage: slippageTolerance / 100,
         txVersion: TxVersion.V0, // Use proper TxVersion enum
       });
