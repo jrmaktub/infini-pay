@@ -349,7 +349,7 @@ export class RaydiumSwapService {
         return { success: false, error: 'No liquidity pool found for ICC/SOL' };
       }
 
-      // Filter for Standard pools only
+      // Filter for Standard pools only using the type guard
       const standardPools = poolsArray.filter(isStandardPool);
       
       if (standardPools.length === 0) {
@@ -368,14 +368,14 @@ export class RaydiumSwapService {
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
       // Use the correct parameter structure for SDK v2 swap with Standard pool
-      // Remove outputMint and inputMint from SwapParam as they don't exist in TxVersion.V0
+      // Based on the actual SDK v2 structure, the parameters should be passed directly to the swap method
       const swapTransaction = await this.raydium!.liquidity.swap({
         poolInfo: standardPool,
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
-        userKeys: {
-          owner: wallet.publicKey,
+        ownerInfo: {
+          wallet: wallet.publicKey,
           tokenAccountIn: iccTokenAccount,
           tokenAccountOut: solTokenAccount,
         },
