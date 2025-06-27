@@ -1,3 +1,4 @@
+
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -24,6 +25,11 @@ interface PoolInfo {
   quoteReserve: number;
   price: number;
   volume24h?: number;
+}
+
+// Type guard to check if a pool is a Standard pool (required for swaps)
+function isStandardPool(pool: any): pool is any {
+  return pool && pool.type === 'Standard' && 'marketId' in pool && 'configId' in pool;
 }
 
 export class RaydiumSwapService {
@@ -324,14 +330,15 @@ export class RaydiumSwapService {
         return { success: false, error: 'No liquidity pool found for ICC/SOL' };
       }
 
-      const pool = poolsArray[0];
+      // Find a Standard pool (required for swaps)
+      const standardPool = poolsArray.find(pool => isStandardPool(pool));
       
-      // Check if pool is a standard pool (required for swap) - handle both Standard subtypes
-      if (pool.type !== 'Standard') {
-        return { success: false, error: 'Pool type not supported for swaps. Only standard pools are supported.' };
+      if (!standardPool) {
+        console.log('Available pool types:', poolsArray.map(p => p.type));
+        return { success: false, error: 'No Standard pool found for ICC/SOL. Only Standard pools support swaps.' };
       }
       
-      console.log('🏊 Using pool:', pool.id);
+      console.log('🏊 Using Standard pool:', standardPool.id, 'Type:', standardPool.type);
 
       // Execute REAL on-chain swap using SDK v2 with correct parameters
       console.log('🚀 Executing REAL on-chain swap transaction...');
@@ -340,9 +347,9 @@ export class RaydiumSwapService {
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
-      // Use the correct parameter structure for SDK v2 swap
+      // Use the correct parameter structure for SDK v2 swap with Standard pool
       const swapTransaction = await this.raydium!.liquidity.swap({
-        poolInfo: pool,
+        poolInfo: standardPool, // Now using verified Standard pool
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
@@ -375,7 +382,8 @@ export class RaydiumSwapService {
       console.log('🎉 REAL on-chain swap completed successfully:', {
         signature,
         amountIn,
-        pool: pool.id
+        pool: standardPool.id,
+        poolType: standardPool.type
       });
       
       return { 
