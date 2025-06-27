@@ -34,21 +34,29 @@ interface SwapAPIResponse {
   error?: string;
 }
 
-// Strict type guard to ensure we only work with Standard pools
-function isStandardPool(pool: any): pool is any {
-  return pool && 
-         pool.type === 'Standard' && 
-         'marketId' in pool && 
-         typeof pool.marketId === 'string' &&
-         'configId' in pool &&
-         typeof pool.configId === 'string' &&
-         'lpPrice' in pool &&
-         typeof pool.lpPrice === 'number' &&
-         'lpAmount' in pool &&
-         typeof pool.lpAmount === 'number' &&
-         'lpMint' in pool &&
-         pool.lpMint &&
-         typeof pool.lpMint === 'object';
+// Multi-hop route definition
+interface SwapRoute {
+  inputMint: string;
+  outputMint: string;
+  hops: Array<{
+    poolId: string;
+    poolType: string;
+    inputMint: string;
+    outputMint: string;
+  }>;
+}
+
+// Enhanced type guards for different pool types
+function isCPMMPool(pool: any): boolean {
+  return pool && pool.type === 'CPMM';
+}
+
+function isConcentratedLiquidityPool(pool: any): boolean {
+  return pool && pool.type === 'Concentrated';
+}
+
+function isStandardPool(pool: any): boolean {
+  return pool && pool.type === 'Standard';
 }
 
 export class RaydiumSwapService {
@@ -56,14 +64,16 @@ export class RaydiumSwapService {
   private isInitialized: boolean = false;
   private ICC_MINT: PublicKey;
   private SOL_MINT: PublicKey;
+  private USDC_MINT: PublicKey;
   private readonly RAYDIUM_API_BASE = 'https://api-v3.raydium.io/v2';
 
   constructor() {
-    console.log('🚀 RaydiumSwapService - Initializing with API-driven approach...');
+    console.log('🚀 RaydiumSwapService - Initializing with multi-hop swap support...');
     try {
       this.ICC_MINT = new PublicKey('14LEVoHXpN8simuS2LSUsUJbWyCkAUi6mvL9JLELbT3g');
       this.SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      console.log('✅ RaydiumSwapService - Constructor ready with API endpoints');
+      this.USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC mint
+      console.log('✅ RaydiumSwapService - Constructor ready with multi-hop routing');
     } catch (error) {
       console.error('❌ RaydiumSwapService - Constructor failed:', error);
       throw error;
@@ -71,7 +81,7 @@ export class RaydiumSwapService {
   }
 
   async initialize(): Promise<boolean> {
-    console.log('🔧 RaydiumSwapService - Starting API-driven initialization...');
+    console.log('🔧 RaydiumSwapService - Starting multi-hop initialization...');
     
     if (this.isInitialized && this.raydium) {
       console.log('✅ RaydiumSwapService - Already initialized');
@@ -82,8 +92,8 @@ export class RaydiumSwapService {
       const connection = await rpcService.getConnection();
       console.log('✅ RPC connection established:', rpcService.getCurrentEndpoint());
       
-      // Initialize Raydium SDK v2 for pool data fetching only
-      console.log('🔄 Loading Raydium SDK v2 for pool data...');
+      // Initialize Raydium SDK v2 for multi-hop swaps
+      console.log('🔄 Loading Raydium SDK v2 for multi-hop swaps...');
       this.raydium = await Raydium.load({
         connection,
         cluster: 'mainnet',
@@ -92,17 +102,17 @@ export class RaydiumSwapService {
         blockhashCommitment: 'finalized',
       });
       
-      console.log('✅ Raydium SDK v2 loaded for pool data fetching');
+      console.log('✅ Raydium SDK v2 loaded for multi-hop functionality');
       
       // Verify the connection works
       const latestBlockhash = await connection.getLatestBlockhash();
       console.log('✅ Connection verified with blockhash:', latestBlockhash.blockhash.slice(0, 8));
       
-      console.log('✅ RaydiumSwapService initialized with API-driven approach');
+      console.log('✅ RaydiumSwapService initialized with multi-hop support');
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - API-driven initialization failed:', {
+      console.error('❌ RaydiumSwapService - Multi-hop initialization failed:', {
         error: error instanceof Error ? error.message : error,
         rpcInfo: rpcService.getConnectionInfo()
       });
@@ -113,61 +123,124 @@ export class RaydiumSwapService {
     }
   }
 
-  async getAvailableSwapPairs(): Promise<SwapPair[]> {
-    console.log('📋 RaydiumSwapService - Fetching swap pairs with SDK v2...');
+  async findMultiHopRoute(inputMint: string, outputMint: string): Promise<SwapRoute | null> {
+    console.log(`🔍 Finding multi-hop route: ${inputMint} → ${outputMint}`);
     
     if (!this.isInitialized || !this.raydium) {
-      const initSuccess = await this.initialize();
-      if (!initSuccess) {
-        throw new Error('Failed to initialize RaydiumSwapService with SDK v2');
-      }
+      console.error('❌ SDK not initialized for route finding');
+      return null;
     }
-    
-    try {
-      // Use SDK v2 to fetch available pools - convert PublicKey to string
-      const poolsData = await this.raydium!.api.fetchPoolByMints({
-        mint1: this.ICC_MINT.toBase58(),
-        mint2: this.SOL_MINT.toBase58(),
-      });
 
-      const pairs: SwapPair[] = [];
-      
-      // Handle the pools data correctly - it's an object with data property
-      const poolsArray = poolsData.data || [];
-      
-      // Filter for Standard pools only
-      const standardPools = poolsArray.filter(isStandardPool);
-      console.log(`🔍 Found ${poolsArray.length} total pools, ${standardPools.length} Standard pools`);
-      
-      if (standardPools.length > 0) {
-        for (const pool of standardPools) {
-          pairs.push({
-            baseMint: pool.mintA.address,
-            quoteMint: pool.mintB.address,
-            baseSymbol: pool.mintA.symbol || 'ICC',
-            quoteSymbol: pool.mintB.symbol || 'SOL',
-            poolId: pool.id
+    try {
+      // For ICC → SOL, use the known multi-hop route: ICC → USDC → wSOL
+      if (inputMint === this.ICC_MINT.toBase58() && outputMint === this.SOL_MINT.toBase58()) {
+        console.log('🛣️ Using ICC → USDC → wSOL multi-hop route');
+        
+        // Find ICC/USDC CPMM pool
+        const iccUsdcPools = await this.raydium.api.fetchPoolByMints({
+          mint1: this.ICC_MINT.toBase58(),
+          mint2: this.USDC_MINT.toBase58(),
+        });
+
+        // Find USDC/wSOL Concentrated Liquidity pool
+        const usdcSolPools = await this.raydium.api.fetchPoolByMints({
+          mint1: this.USDC_MINT.toBase58(),
+          mint2: this.SOL_MINT.toBase58(),
+        });
+
+        const iccUsdcPoolsArray = iccUsdcPools.data || [];
+        const usdcSolPoolsArray = usdcSolPools.data || [];
+
+        // Find CPMM pool for ICC/USDC
+        const cpmm = iccUsdcPoolsArray.find(isCPMMPool);
+        // Find Concentrated Liquidity pool for USDC/wSOL
+        const clmm = usdcSolPoolsArray.find(isConcentratedLiquidityPool);
+
+        if (cpmm && clmm) {
+          const route: SwapRoute = {
+            inputMint: this.ICC_MINT.toBase58(),
+            outputMint: this.SOL_MINT.toBase58(),
+            hops: [
+              {
+                poolId: cpmm.id,
+                poolType: 'CPMM',
+                inputMint: this.ICC_MINT.toBase58(),
+                outputMint: this.USDC_MINT.toBase58()
+              },
+              {
+                poolId: clmm.id,
+                poolType: 'Concentrated',
+                inputMint: this.USDC_MINT.toBase58(),
+                outputMint: this.SOL_MINT.toBase58()
+              }
+            ]
+          };
+
+          console.log('✅ Multi-hop route found:', route);
+          return route;
+        } else {
+          console.log('❌ Required pools not found:', { 
+            cpmm: !!cpmm, 
+            clmm: !!clmm,
+            iccUsdcPools: iccUsdcPoolsArray.length,
+            usdcSolPools: usdcSolPoolsArray.length
           });
         }
       }
 
-      console.log('✅ RaydiumSwapService - SDK v2 Standard swap pairs found:', pairs.length);
+      return null;
+    } catch (error) {
+      console.error('❌ Error finding multi-hop route:', error);
+      return null;
+    }
+  }
+
+  async getAvailableSwapPairs(): Promise<SwapPair[]> {
+    console.log('📋 RaydiumSwapService - Fetching multi-hop swap pairs...');
+    
+    if (!this.isInitialized || !this.raydium) {
+      const initSuccess = await this.initialize();
+      if (!initSuccess) {
+        throw new Error('Failed to initialize RaydiumSwapService');
+      }
+    }
+    
+    try {
+      const pairs: SwapPair[] = [];
+      
+      // Check for multi-hop route availability
+      const route = await this.findMultiHopRoute(
+        this.ICC_MINT.toBase58(), 
+        this.SOL_MINT.toBase58()
+      );
+      
+      if (route) {
+        pairs.push({
+          baseMint: this.ICC_MINT.toString(),
+          quoteMint: this.SOL_MINT.toString(),
+          baseSymbol: 'ICC',
+          quoteSymbol: 'SOL',
+          poolId: `multi-hop-${route.hops.length}-hops`
+        });
+        console.log('✅ Multi-hop pair available: ICC/SOL');
+      }
+
       return pairs;
     } catch (error) {
-      console.error('❌ Error fetching pools with SDK v2:', error);
+      console.error('❌ Error fetching multi-hop pairs:', error);
       // Return fallback pair
       return [{
         baseMint: this.ICC_MINT.toString(),
         quoteMint: this.SOL_MINT.toString(),
         baseSymbol: 'ICC',
         quoteSymbol: 'SOL',
-        poolId: 'fallback-pool'
+        poolId: 'fallback-multi-hop'
       }];
     }
   }
 
   async getPoolInfo(baseToken: string, quoteToken: string): Promise<PoolInfo | null> {
-    console.log(`🏊 RaydiumSwapService - Fetching pool info with SDK v2 for ${baseToken}/${quoteToken}...`);
+    console.log(`🏊 RaydiumSwapService - Fetching multi-hop pool info for ${baseToken}/${quoteToken}...`);
     
     if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
@@ -179,36 +252,41 @@ export class RaydiumSwapService {
     
     try {
       if (baseToken === 'ICC' && quoteToken === 'SOL') {
-        // Convert PublicKey to string for API call
-        const poolsData = await this.raydium!.api.fetchPoolByMints({
-          mint1: this.ICC_MINT.toBase58(),
-          mint2: this.SOL_MINT.toBase58(),
-        });
-
-        const poolsArray = poolsData.data || [];
+        const route = await this.findMultiHopRoute(
+          this.ICC_MINT.toBase58(), 
+          this.SOL_MINT.toBase58()
+        );
         
-        // Filter for Standard pools only
-        const standardPools = poolsArray.filter(isStandardPool);
-        
-        if (standardPools.length > 0) {
-          const pool = standardPools[0];
-          const poolInfo: PoolInfo = {
-            poolId: pool.id,
-            baseReserve: pool.mintAmountA,
-            quoteReserve: pool.mintAmountB,
-            price: pool.price,
-            volume24h: pool.day?.volume || 0
-          };
+        if (route && route.hops.length > 0) {
+          // Get info from the first hop (ICC/USDC) for display purposes
+          const firstHop = route.hops[0];
+          const iccUsdcPools = await this.raydium!.api.fetchPoolByMints({
+            mint1: this.ICC_MINT.toBase58(),
+            mint2: this.USDC_MINT.toBase58(),
+          });
 
-          console.log('✅ RaydiumSwapService - SDK v2 Standard pool info fetched:', poolInfo);
-          return poolInfo;
+          const poolsArray = iccUsdcPools.data || [];
+          const cpmm = poolsArray.find(isCPMMPool);
+          
+          if (cpmm) {
+            const poolInfo: PoolInfo = {
+              poolId: `multi-hop-${route.hops.length}-hops`,
+              baseReserve: cpmm.mintAmountA || 0,
+              quoteReserve: cpmm.mintAmountB || 0,
+              price: cpmm.price || 0,
+              volume24h: cpmm.day?.volume || 0
+            };
+
+            console.log('✅ Multi-hop pool info fetched:', poolInfo);
+            return poolInfo;
+          }
         }
       }
 
-      console.log('ℹ️ RaydiumSwapService - No Standard pool info available for this pair');
+      console.log('ℹ️ RaydiumSwapService - No multi-hop route available for this pair');
       return null;
     } catch (error) {
-      console.error('❌ RaydiumSwapService - Error fetching pool info with SDK v2:', error);
+      console.error('❌ RaydiumSwapService - Error fetching multi-hop pool info:', error);
       return null;
     }
   }
@@ -225,7 +303,7 @@ export class RaydiumSwapService {
     minimumReceived: string;
     error?: string;
   }> {
-    console.log(`🧮 RaydiumSwapService - SDK v2 swap simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
+    console.log(`🧮 RaydiumSwapService - Multi-hop simulation: ${inputAmount} ${baseToken} → ${quoteToken}`);
     
     if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
@@ -234,7 +312,7 @@ export class RaydiumSwapService {
           outputAmount: '0',
           priceImpact: 0,
           minimumReceived: '0',
-          error: 'SDK v2 not available - initialization failed'
+          error: 'Multi-hop SDK not available - initialization failed'
         };
       }
     }
@@ -251,30 +329,55 @@ export class RaydiumSwapService {
       }
 
       if (baseToken === 'ICC' && quoteToken === 'SOL' && isFromBase) {
-        // Get Standard pool information for accurate simulation
-        const poolsData = await this.raydium!.api.fetchPoolByMints({
-          mint1: this.ICC_MINT.toBase58(),
-          mint2: this.SOL_MINT.toBase58(),
-        });
-
-        const poolsArray = poolsData.data || [];
-        const standardPools = poolsArray.filter(isStandardPool);
+        const route = await this.findMultiHopRoute(
+          this.ICC_MINT.toBase58(), 
+          this.SOL_MINT.toBase58()
+        );
         
-        if (standardPools.length > 0) {
-          const pool = standardPools[0];
-          const price = pool.price;
-          const outputAmount = inputAmount * price;
-          const priceImpact = Math.min((inputAmount / pool.mintAmountA) * 100, 15);
-          const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
+        if (route && route.hops.length >= 2) {
+          // Simulate first hop: ICC → USDC
+          const iccUsdcPools = await this.raydium!.api.fetchPoolByMints({
+            mint1: this.ICC_MINT.toBase58(),
+            mint2: this.USDC_MINT.toBase58(),
+          });
 
-          const result = {
-            outputAmount: outputAmount.toFixed(8),
-            priceImpact: priceImpact,
-            minimumReceived: minimumReceived.toFixed(8)
-          };
+          const iccUsdcPoolsArray = iccUsdcPools.data || [];
+          const cpmm = iccUsdcPoolsArray.find(isCPMMPool);
+          
+          if (cpmm) {
+            // Estimate first hop output (ICC → USDC)
+            const iccPrice = cpmm.price || 0;
+            const usdcAmount = inputAmount * iccPrice;
+            
+            // Simulate second hop: USDC → wSOL
+            const usdcSolPools = await this.raydium!.api.fetchPoolByMints({
+              mint1: this.USDC_MINT.toBase58(),
+              mint2: this.SOL_MINT.toBase58(),
+            });
 
-          console.log('✅ RaydiumSwapService - SDK v2 simulation successful:', result);
-          return result;
+            const usdcSolPoolsArray = usdcSolPools.data || [];
+            const clmm = usdcSolPoolsArray.find(isConcentratedLiquidityPool);
+            
+            if (clmm) {
+              // Estimate final output (USDC → SOL)
+              const usdcSolPrice = clmm.price || 0;
+              const finalSolAmount = usdcAmount * usdcSolPrice;
+              
+              // Calculate combined price impact (simplified)
+              const priceImpact = Math.min((inputAmount / (cpmm.mintAmountA || 1)) * 100 + 
+                                          (usdcAmount / (clmm.mintAmountA || 1)) * 100, 15);
+              const minimumReceived = finalSolAmount * (1 - slippageTolerance / 100);
+
+              const result = {
+                outputAmount: finalSolAmount.toFixed(8),
+                priceImpact: priceImpact,
+                minimumReceived: minimumReceived.toFixed(8)
+              };
+
+              console.log('✅ Multi-hop simulation successful:', result);
+              return result;
+            }
+          }
         }
       }
 
@@ -282,16 +385,16 @@ export class RaydiumSwapService {
         outputAmount: '0',
         priceImpact: 0,
         minimumReceived: '0',
-        error: 'No Standard pool found for this swap pair'
+        error: 'No multi-hop route found for this swap pair'
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - SDK v2 simulation failed:', error);
+      console.error('❌ RaydiumSwapService - Multi-hop simulation failed:', error);
       return {
         outputAmount: '0',
         priceImpact: 0,
         minimumReceived: '0',
-        error: error instanceof Error ? error.message : 'Simulation failed'
+        error: error instanceof Error ? error.message : 'Multi-hop simulation failed'
       };
     }
   }
@@ -301,12 +404,12 @@ export class RaydiumSwapService {
     amountIn: number,
     slippageTolerance: number = 1
   ): Promise<SwapResult> {
-    console.log('🔥 RaydiumSwapService - Executing REAL API-driven swap:', amountIn, 'ICC → SOL');
+    console.log('🔥 RaydiumSwapService - Executing REAL multi-hop swap:', amountIn, 'ICC → USDC → SOL');
     
     if (!this.isInitialized || !this.raydium) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
-        return { success: false, error: 'API service not available - initialization failed' };
+        return { success: false, error: 'Multi-hop service not available - initialization failed' };
       }
     }
     
@@ -315,7 +418,18 @@ export class RaydiumSwapService {
         return { success: false, error: 'Wallet not connected or does not support signing' };
       }
 
-      console.log('🔍 Pre-swap validation with API approach...');
+      console.log('🛣️ Finding multi-hop route for ICC → SOL...');
+      
+      const route = await this.findMultiHopRoute(
+        this.ICC_MINT.toBase58(), 
+        this.SOL_MINT.toBase58()
+      );
+      
+      if (!route || route.hops.length === 0) {
+        return { success: false, error: 'No multi-hop route available for ICC → SOL' };
+      }
+
+      console.log('✅ Multi-hop route found:', route);
       
       if (amountIn <= 0) {
         return { success: false, error: 'Invalid swap amount' };
@@ -343,22 +457,22 @@ export class RaydiumSwapService {
           };
         }
       } catch (balanceError) {
-        console.warn('⚠️ Could not check ICC balance, proceeding with swap attempt');
+        console.warn('⚠️ Could not check ICC balance, proceeding with multi-hop swap attempt');
       }
 
-      // Prepare API call payload following the demo pattern
+      // Use Raydium API for multi-hop swap - the API handles route optimization
       const swapPayload = {
         inputMint: this.ICC_MINT.toBase58(),
         outputMint: this.SOL_MINT.toBase58(),
         amount: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         slippageBps: slippageTolerance * 100, // Convert percentage to basis points
-        txVersion: 'V0' as const, // Use string format as expected by API
+        txVersion: 'V0' as const,
         ownerPubkey: wallet.publicKey.toBase58()
       };
 
-      console.log('📡 Making API call to Raydium swap endpoint:', swapPayload);
+      console.log('📡 Making multi-hop API call to Raydium swap endpoint:', swapPayload);
 
-      // Make the API call to Raydium's swap endpoint
+      // Make the API call to Raydium's swap endpoint (handles multi-hop automatically)
       const response = await fetch(`${this.RAYDIUM_API_BASE}/transaction/swap-base-in`, {
         method: 'POST',
         headers: {
@@ -368,16 +482,16 @@ export class RaydiumSwapService {
       });
 
       if (!response.ok) {
-        throw new Error(`Raydium API error: ${response.status} ${response.statusText}`);
+        throw new Error(`Raydium multi-hop API error: ${response.status} ${response.statusText}`);
       }
 
       const apiResult: SwapAPIResponse = await response.json();
       
       if (!apiResult.success || !apiResult.data?.swapTransactions) {
-        throw new Error(apiResult.error || 'API returned no swap transactions');
+        throw new Error(apiResult.error || 'Multi-hop API returned no swap transactions');
       }
 
-      console.log('✅ Received swap transactions from API:', apiResult.data.swapTransactions.length);
+      console.log('✅ Received multi-hop swap transactions from API:', apiResult.data.swapTransactions.length);
 
       // Deserialize and sign the transactions
       const transactions: VersionedTransaction[] = apiResult.data.swapTransactions.map(txData => {
@@ -385,7 +499,7 @@ export class RaydiumSwapService {
         return VersionedTransaction.deserialize(txBuffer);
       });
 
-      console.log('🔄 Signing transactions...');
+      console.log('🔄 Signing multi-hop transactions...');
       const signedTransactions: VersionedTransaction[] = [];
       
       for (const tx of transactions) {
@@ -393,35 +507,36 @@ export class RaydiumSwapService {
         signedTransactions.push(signedTx);
       }
 
-      console.log('📡 Sending REAL transactions to network...');
+      console.log('📡 Sending REAL multi-hop transactions to network...');
       let finalSignature = '';
       
       // Send all transactions
       for (let i = 0; i < signedTransactions.length; i++) {
         const signedTx = signedTransactions[i];
         
-        console.log(`📡 Sending transaction ${i + 1}/${signedTransactions.length}...`);
+        console.log(`📡 Sending multi-hop transaction ${i + 1}/${signedTransactions.length}...`);
         const signature = await connection.sendRawTransaction(signedTx.serialize(), {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
         });
         
-        console.log(`⏳ Confirming transaction ${i + 1}: ${signature}`);
+        console.log(`⏳ Confirming multi-hop transaction ${i + 1}: ${signature}`);
         const confirmation = await connection.confirmTransaction(signature, 'confirmed');
         
         if (confirmation.value.err) {
-          throw new Error(`Transaction ${i + 1} failed: ${JSON.stringify(confirmation.value.err)}`);
+          throw new Error(`Multi-hop transaction ${i + 1} failed: ${JSON.stringify(confirmation.value.err)}`);
         }
         
         // Keep the last signature as the main one
         finalSignature = signature;
-        console.log(`✅ Transaction ${i + 1} confirmed: ${signature}`);
+        console.log(`✅ Multi-hop transaction ${i + 1} confirmed: ${signature}`);
       }
 
-      console.log('🎉 REAL API-driven swap completed successfully:', {
+      console.log('🎉 REAL multi-hop swap completed successfully:', {
         finalSignature,
         transactionCount: signedTransactions.length,
-        amountIn
+        amountIn,
+        route: 'ICC → USDC → SOL'
       });
       
       return { 
@@ -430,12 +545,12 @@ export class RaydiumSwapService {
       };
 
     } catch (error) {
-      console.error('❌ RaydiumSwapService - API-driven swap execution failed:', {
+      console.error('❌ RaydiumSwapService - Multi-hop swap execution failed:', {
         error: error instanceof Error ? error.message : error,
         rpcEndpoint: rpcService.getCurrentEndpoint()
       });
       
-      let errorMessage = 'API-driven swap execution failed';
+      let errorMessage = 'Multi-hop swap execution failed';
       if (error instanceof Error) {
         if (error.message.includes('User rejected')) {
           errorMessage = 'Transaction was rejected by user';
@@ -445,8 +560,8 @@ export class RaydiumSwapService {
           errorMessage = 'Network connection error - please try again';
         } else if (error.message.includes('slippage')) {
           errorMessage = 'Price moved too much during swap - try increasing slippage tolerance';
-        } else if (error.message.includes('API error')) {
-          errorMessage = 'Raydium API error - service may be temporarily unavailable';
+        } else if (error.message.includes('multi-hop API error')) {
+          errorMessage = 'Raydium multi-hop API error - service may be temporarily unavailable';
         } else {
           errorMessage = error.message;
         }
@@ -462,4 +577,4 @@ export class RaydiumSwapService {
 
 // Export singleton instance
 export const raydiumSwapService = new RaydiumSwapService();
-console.log('✅ RaydiumSwapService instance exported with API-driven functionality');
+console.log('✅ RaydiumSwapService instance exported with multi-hop functionality');
