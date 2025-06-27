@@ -161,8 +161,8 @@ export class RaydiumSwapService {
           const pool = poolsArray[0];
           const poolInfo: PoolInfo = {
             poolId: pool.id,
-            baseReserve: parseFloat(pool.mintAmountA.toString()),
-            quoteReserve: parseFloat(pool.mintAmountB.toString()),
+            baseReserve: parseFloat(pool.mintAmountA),
+            quoteReserve: parseFloat(pool.mintAmountB),
             price: parseFloat(pool.price),
             volume24h: pool.day?.volume || 0
           };
@@ -230,7 +230,7 @@ export class RaydiumSwapService {
           const pool = poolsArray[0];
           const price = parseFloat(pool.price);
           const outputAmount = inputAmount * price;
-          const priceImpact = Math.min((inputAmount / parseFloat(pool.mintAmountA.toString())) * 100, 15);
+          const priceImpact = Math.min((inputAmount / parseFloat(pool.mintAmountA)) * 100, 15);
           const minimumReceived = outputAmount * (1 - slippageTolerance / 100);
 
           const result = {
@@ -325,6 +325,12 @@ export class RaydiumSwapService {
       }
 
       const pool = poolsArray[0];
+      
+      // Check if pool is a standard pool (required for swap)
+      if (pool.type !== 'Standard') {
+        return { success: false, error: 'Pool type not supported for swaps. Only standard pools are supported.' };
+      }
+      
       console.log('🏊 Using pool:', pool.id);
 
       // Execute REAL on-chain swap using SDK v2
