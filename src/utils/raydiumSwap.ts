@@ -1,3 +1,4 @@
+
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, TransactionMessage, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
@@ -367,18 +368,13 @@ export class RaydiumSwapService {
       const iccTokenAccount = await getAssociatedTokenAddress(this.ICC_MINT, wallet.publicKey);
       const solTokenAccount = await getAssociatedTokenAddress(this.SOL_MINT, wallet.publicKey);
       
-      // Use the SDK v2 swap method with the correct structure
-      // Based on actual SDK v2 type definitions, ensuring all PublicKey objects are converted to strings
+      // Use the SDK v2 swap method with the correct SwapParam structure for TxVersion.V0
+      // Based on actual SDK v2 type definitions, use minimal required parameters
       const swapResult = await this.raydium!.liquidity.swap({
         poolInfo: standardPool,
         amountIn: amountIn * Math.pow(10, 9), // Convert to base units (ICC has 9 decimals)
         amountOut: 0, // Will be calculated by the SDK
         fixedSide: 'in', // We're specifying the input amount
-        inputMint: this.ICC_MINT.toBase58(), // Convert PublicKey to string
-        outputMint: this.SOL_MINT.toBase58(), // Convert PublicKey to string
-        ownerPubkey: wallet.publicKey.toBase58(), // Convert PublicKey to string
-        inputTokenAccount: iccTokenAccount.toBase58(), // Convert PublicKey to string
-        outputTokenAccount: solTokenAccount.toBase58(), // Convert PublicKey to string
         txVersion: TxVersion.V0,
       });
 
