@@ -64,7 +64,7 @@ export const useWalletData = () => {
     }
   }, []);
 
-  // Fetch REAL on-chain balances with enhanced diagnostics
+  // Enhanced real balance fetching with comprehensive diagnostics
   const fetchRealBalances = useCallback(async (): Promise<WalletBalances> => {
     if (!publicKey) {
       console.log('ℹ️ No public key available for balance fetch');
@@ -72,107 +72,165 @@ export const useWalletData = () => {
     }
 
     const walletAddress = publicKey.toString();
-    console.log('🔍 Starting comprehensive balance fetch for:', walletAddress);
+    console.log('\n🚀 ==> STARTING COMPREHENSIVE BALANCE FETCH <==');
+    console.log('📍 Wallet Address:', walletAddress);
+    console.log('🕐 Timestamp:', new Date().toISOString());
     
     try {
-      // Test RPC connection first
-      console.log('🧪 Testing RPC connection before balance fetch...');
+      // Run comprehensive RPC diagnostics first
+      console.log('🔧 Running RPC diagnostics before balance fetch...');
+      await rpcService.runDiagnostics();
+      
+      // Test RPC connection with detailed logging
+      console.log('🧪 Testing RPC connection stability...');
       const isRpcWorking = await rpcService.testConnection();
       if (!isRpcWorking) {
-        throw new Error('RPC connection test failed');
+        throw new Error('RPC connection stability test failed - no working endpoints');
       }
 
       const connection = await rpcService.getConnection();
       const balances: WalletBalances = { icc_balance: 0, usdc_balance: 0, sol_balance: 0 };
 
-      console.log('📡 RPC Connection Info:', {
-        endpoint: rpcService.getCurrentEndpoint(),
-        commitment: 'confirmed'
+      console.log('📡 Using RPC Endpoint:', rpcService.getCurrentEndpoint());
+      console.log('⚙️ Connection Config:', {
+        commitment: 'confirmed',
+        endpoint: rpcService.getCurrentEndpoint()
       });
 
-      // 1. Get SOL balance with detailed logging
+      // 1. Enhanced SOL balance fetching
       try {
-        console.log('💰 Fetching SOL balance...');
+        console.log('\n💰 === SOL BALANCE FETCH ===');
+        console.log('📤 Requesting SOL balance for:', walletAddress);
+        
+        const startTime = Date.now();
         const solBalanceLamports = await connection.getBalance(publicKey);
-        balances.sol_balance = solBalanceLamports / 1000000000; // Convert lamports to SOL
-        console.log('✅ SOL Balance Success:', {
+        const endTime = Date.now();
+        
+        balances.sol_balance = solBalanceLamports / 1000000000;
+        
+        console.log('✅ SOL Balance Fetch Success:', {
+          responseTime: `${endTime - startTime}ms`,
           lamports: solBalanceLamports,
-          sol: balances.sol_balance
+          sol: balances.sol_balance,
+          endpoint: rpcService.getCurrentEndpoint()
         });
       } catch (error) {
-        console.error('❌ SOL Balance Error:', error);
+        console.error('❌ SOL Balance Fetch Error:', {
+          error: error instanceof Error ? error.message : error,
+          errorType: error instanceof Error ? error.name : 'Unknown',
+          endpoint: rpcService.getCurrentEndpoint(),
+          stack: error instanceof Error ? error.stack?.slice(0, 300) : 'No stack'
+        });
         throw new Error(`SOL balance fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
-      // 2. Get ICC token balance with detailed logging
+      // 2. Enhanced ICC token balance fetching
       try {
-        console.log('🪙 Fetching ICC token balance...');
+        console.log('\n🪙 === ICC TOKEN BALANCE FETCH ===');
         const iccTokenAccount = await getAssociatedTokenAddress(ICC_MINT, publicKey);
-        console.log('🔍 ICC Token Account:', iccTokenAccount.toString());
+        console.log('🔍 ICC Token Account Address:', iccTokenAccount.toString());
         
+        const startTime = Date.now();
         const iccAccountInfo = await connection.getAccountInfo(iccTokenAccount);
+        const endTime = Date.now();
+        
+        console.log('📊 ICC Account Info Response:', {
+          responseTime: `${endTime - startTime}ms`,
+          accountExists: !!iccAccountInfo,
+          accountOwner: iccAccountInfo?.owner.toString(),
+          dataLength: iccAccountInfo?.data.length
+        });
+        
         if (iccAccountInfo) {
           const iccAccount = await getAccount(connection, iccTokenAccount);
-          balances.icc_balance = Number(iccAccount.amount) / Math.pow(10, 9); // Assuming 9 decimals
+          balances.icc_balance = Number(iccAccount.amount) / Math.pow(10, 9);
+          
           console.log('✅ ICC Balance Success:', {
             tokenAccount: iccTokenAccount.toString(),
             rawAmount: iccAccount.amount.toString(),
-            balance: balances.icc_balance
+            balance: balances.icc_balance,
+            decimals: 9
           });
         } else {
           console.log('ℹ️ ICC token account not found - balance is 0');
           balances.icc_balance = 0;
         }
       } catch (error) {
-        console.log('ℹ️ ICC token account fetch failed (likely no tokens):', error instanceof Error ? error.message : error);
+        console.log('ℹ️ ICC token fetch failed (likely no tokens):', {
+          error: error instanceof Error ? error.message : error,
+          endpoint: rpcService.getCurrentEndpoint()
+        });
         balances.icc_balance = 0;
       }
 
-      // 3. Get USDC token balance with detailed logging
+      // 3. Enhanced USDC token balance fetching
       try {
-        console.log('💵 Fetching USDC token balance...');
+        console.log('\n💵 === USDC TOKEN BALANCE FETCH ===');
         const usdcTokenAccount = await getAssociatedTokenAddress(USDC_MINT, publicKey);
-        console.log('🔍 USDC Token Account:', usdcTokenAccount.toString());
+        console.log('🔍 USDC Token Account Address:', usdcTokenAccount.toString());
         
+        const startTime = Date.now();
         const usdcAccountInfo = await connection.getAccountInfo(usdcTokenAccount);
+        const endTime = Date.now();
+        
+        console.log('📊 USDC Account Info Response:', {
+          responseTime: `${endTime - startTime}ms`,
+          accountExists: !!usdcAccountInfo,
+          accountOwner: usdcAccountInfo?.owner.toString(),
+          dataLength: usdcAccountInfo?.data.length
+        });
+        
         if (usdcAccountInfo) {
           const usdcAccount = await getAccount(connection, usdcTokenAccount);
-          balances.usdc_balance = Number(usdcAccount.amount) / Math.pow(10, 6); // USDC has 6 decimals
+          balances.usdc_balance = Number(usdcAccount.amount) / Math.pow(10, 6);
+          
           console.log('✅ USDC Balance Success:', {
             tokenAccount: usdcTokenAccount.toString(),
             rawAmount: usdcAccount.amount.toString(),
-            balance: balances.usdc_balance
+            balance: balances.usdc_balance,
+            decimals: 6
           });
         } else {
           console.log('ℹ️ USDC token account not found - balance is 0');
           balances.usdc_balance = 0;
         }
       } catch (error) {
-        console.log('ℹ️ USDC token account fetch failed (likely no tokens):', error instanceof Error ? error.message : error);
+        console.log('ℹ️ USDC token fetch failed (likely no tokens):', {
+          error: error instanceof Error ? error.message : error,
+          endpoint: rpcService.getCurrentEndpoint()
+        });
         balances.usdc_balance = 0;
       }
 
-      console.log('📊 Final Balance Summary:', {
+      console.log('\n📊 === FINAL BALANCE SUMMARY ===');
+      console.log('🎯 Balance Fetch Complete:', {
         wallet: walletAddress,
         balances,
-        rpcEndpoint: rpcService.getCurrentEndpoint()
+        rpcEndpoint: rpcService.getCurrentEndpoint(),
+        timestamp: new Date().toISOString()
       });
+      console.log('🚀 ==> BALANCE FETCH COMPLETED SUCCESSFULLY <==\n');
       
       return balances;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown balance fetch error';
-      console.error('❌ Comprehensive Balance Fetch Error:', {
+      console.error('\n❌ === COMPREHENSIVE BALANCE FETCH ERROR ===');
+      console.error('💥 Error Details:', {
         wallet: walletAddress,
         error: errorMessage,
+        errorType: error instanceof Error ? error.name : 'Unknown',
         rpcEndpoint: rpcService.getCurrentEndpoint(),
-        rpcInfo: rpcService.getConnectionInfo()
+        rpcInfo: rpcService.getConnectionInfo(),
+        timestamp: new Date().toISOString(),
+        stack: error instanceof Error ? error.stack?.slice(0, 500) : 'No stack trace'
       });
+      console.error('🚀 ==> BALANCE FETCH FAILED <==\n');
       
       // Reset RPC connection on error to try different endpoint next time
       rpcService.reset();
       
-      throw new Error(`Balance fetch failed: ${errorMessage}`);
+      throw new Error(`Could not fetch balances from blockchain: ${errorMessage}`);
     }
   }, [publicKey]);
 

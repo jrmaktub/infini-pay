@@ -32,6 +32,8 @@ export class RPCService {
     for (const endpoint of this.endpoints) {
       try {
         console.log(`🔗 Testing endpoint: ${endpoint}`);
+        console.log(`📡 Making test request to: ${endpoint}`);
+        
         const testConnection = new Connection(endpoint, {
           commitment: 'confirmed',
           httpHeaders: {
@@ -45,12 +47,14 @@ export class RPCService {
         );
         
         const blockHashPromise = testConnection.getLatestBlockhash();
+        
+        console.log(`⏳ Waiting for response from: ${endpoint}`);
         const result = await Promise.race([blockHashPromise, timeoutPromise]);
         
         console.log('✅ RPCService - Connection test successful:', {
           endpoint,
-          slot: result.context?.slot,
-          blockhash: result.value.blockhash.slice(0, 8) + '...'
+          blockhash: result.blockhash.slice(0, 8) + '...',
+          lastValidBlockHeight: result.lastValidBlockHeight
         });
         
         this.connection = testConnection;
@@ -60,8 +64,23 @@ export class RPCService {
       } catch (error) {
         console.log(`❌ RPCService - Failed to connect to ${endpoint}:`, {
           error: error instanceof Error ? error.message : error,
-          endpoint
+          endpoint,
+          errorType: error instanceof Error ? error.name : 'Unknown',
+          stack: error instanceof Error ? error.stack?.slice(0, 200) : 'No stack trace'
         });
+        
+        // Log network-level errors specifically
+        if (error instanceof Error) {
+          if (error.message.includes('403') || error.message.includes('Forbidden')) {
+            console.log(`🚫 HTTP 403 Forbidden - API key may be invalid for: ${endpoint}`);
+          } else if (error.message.includes('429') || error.message.includes('rate limit')) {
+            console.log(`⏱️ Rate limit exceeded for: ${endpoint}`);
+          } else if (error.message.includes('CORS')) {
+            console.log(`🌐 CORS error for: ${endpoint}`);
+          } else if (error.message.includes('network') || error.message.includes('fetch')) {
+            console.log(`🌐 Network connectivity issue for: ${endpoint}`);
+          }
+        }
         continue;
       }
     }
@@ -76,13 +95,19 @@ export class RPCService {
       const result = await connection.getLatestBlockhash();
       console.log('✅ RPCService - Connection test passed:', {
         endpoint: this.currentEndpoint,
-        slot: result.context?.slot
+        blockhash: result.blockhash.slice(0, 8) + '...',
+        lastValidBlockHeight: result.lastValidBlockHeight
       });
       return true;
     } catch (error) {
       console.error('❌ RPCService - Connection test failed:', {
         error: error instanceof Error ? error.message : error,
-        endpoint: this.currentEndpoint
+        endpoint: this.currentEndpoint,
+        errorDetails: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.slice(0, 300)
+        } : 'No error details'
       });
       return false;
     }
@@ -106,6 +131,39 @@ export class RPCService {
       currentEndpoint: this.currentEndpoint,
       availableEndpoints: this.endpoints.length
     };
+  }
+
+  // Enhanced diagnostics method
+  async runDiagnostics(): Promise<void> {
+    console.log('🔧 RPCService - Running comprehensive diagnostics...');
+    
+    for (let i = 0; i < this.endpoints.length; i++) {
+      const endpoint = this.endpoints[i];
+      console.log(`\n🔍 Testing endpoint ${i + 1}/${this.endpoints.length}: ${endpoint}`);
+      
+      try {
+        const testConnection = new Connection(endpoint, { commitment: 'confirmed' });
+        
+        const startTime = Date.now();
+        const result = await testConnection.getLatestBlockhash();
+        const endTime = Date.now();
+        
+        console.log(`✅ Endpoint ${i + 1} - SUCCESS:`, {
+          endpoint,
+          responseTime: `${endTime - startTime}ms`,
+          blockhash: result.blockhash.slice(0, 8) + '...',
+          lastValidBlockHeight: result.lastValidBlockHeight
+        });
+      } catch (error) {
+        console.log(`❌ Endpoint ${i + 1} - FAILED:`, {
+          endpoint,
+          error: error instanceof Error ? error.message : error,
+          errorType: error instanceof Error ? error.name : 'Unknown'
+        });
+      }
+    }
+    
+    console.log('🔧 RPCService - Diagnostics complete\n');
   }
 }
 
