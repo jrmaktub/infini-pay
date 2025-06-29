@@ -91,10 +91,8 @@ const SwapInterface = () => {
       console.log('✅ SwapInterface - Successfully fetched swap pairs:', pairs);
       setSwapPairs(pairs);
       
-      toast({
-        title: "Swap Pairs Loaded",
-        description: `Found ${pairs.length} available swap pairs`,
-      });
+      // Removed the "Swap Pairs Loaded" toast notification
+      
     } catch (error) {
       console.error('❌ SwapInterface - Error fetching swap pairs:', error);
       toast({
